@@ -2,35 +2,42 @@ require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
-const cron = require('node-cron');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 // Basic Route
-app.get('/', (req, res) => {
-  res.send('CertifyHub Backend API is running');
+app.get('/api', (req, res) => {
+  res.send('CertifyHub Backend API is running on Vercel Serverless');
 });
 
-// Import Routes (Placeholders)
-// const certificateRoutes = require('./routes/certificateRoutes');
-// app.use('/api/certificates', certificateRoutes);
-
-const PORT = process.env.PORT || 5000;
-
-// Connect to MongoDB
-mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/certifyhub')
-  .then(() => {
-    console.log('Connected to MongoDB');
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-  })
-  .catch(err => console.error('MongoDB connection error:', err));
-
-// Simulated Background Task: Poll Google Drive every 5 minutes
-cron.schedule('*/5 * * * *', () => {
-  console.log('[Background Task] Polling Google Drive for new certificates...');
+// Vercel Cron Job Endpoint (Replaces node-cron)
+app.get('/api/cron', async (req, res) => {
+  console.log('[Cron] Polling Google Drive for new certificates...');
   // Logic to fetch from Google Drive and send to OpenAI goes here
+  
+  res.status(200).send('Cron job executed successfully');
 });
+
+// Connect to MongoDB (Vercel caches connections globally to prevent connection spikes)
+let isConnected;
+const connectDB = async () => {
+  if (isConnected) return;
+  try {
+    const db = await mongoose.connect(process.env.MONGO_URI);
+    isConnected = db.connections[0].readyState;
+    console.log('Connected to MongoDB');
+  } catch (err) {
+    console.error('MongoDB connection error:', err);
+  }
+};
+
+// Middleware to ensure DB connection on every API hit
+app.use(async (req, res, next) => {
+  await connectDB();
+  next();
+});
+
+// Export the Express API for Vercel (Do not call app.listen)
+module.exports = app;
