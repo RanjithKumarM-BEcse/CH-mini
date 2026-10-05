@@ -3,17 +3,17 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Landing from './pages/Landing';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
+import { useAuth } from './context/AuthContext';
 
 function App() {
-  // Placeholder for auth state. 
-  // In the next step, we will connect this to a real AuthContext tied to your Backend JWT.
-  const isAuthenticated = false; 
+  const { user } = useAuth();
+  const isAuthenticated = !!user;
 
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Landing />} />
-        <Route path="/login" element={<Login />} />
+        <Route path="/" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Landing />} />
+        <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" /> : <Login />} />
         
         {/* Protected Routes */}
         <Route 

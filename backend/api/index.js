@@ -7,6 +7,8 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const authRoutes = require('../routes/auth');
+
 // Basic Routes
 app.get('/', (req, res) => {
   res.send('CertifyHub Backend is running! Access the API at /api');
@@ -15,6 +17,9 @@ app.get('/', (req, res) => {
 app.get('/api', (req, res) => {
   res.send('CertifyHub Backend API is running on Vercel Serverless');
 });
+
+// Authentication Routes
+app.use('/api/auth', authRoutes);
 
 // Vercel Cron Job Endpoint (Replaces node-cron)
 app.get('/api/cron', async (req, res) => {
