@@ -34,6 +34,8 @@ app.use(async (req, res, next) => {
 });
 
 const authRoutes = require('../routes/auth');
+const folderRoutes = require('../routes/folders');
+const certificateRoutes = require('../routes/certificates');
 
 // Basic Routes
 app.get('/', (req, res) => {
@@ -44,8 +46,10 @@ app.get('/api', (req, res) => {
   res.send('CertifyHub Backend API is running on Vercel Serverless');
 });
 
-// Authentication Routes
+// API Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/folders', folderRoutes);
+app.use('/api/certificates', certificateRoutes);
 
 // Vercel Cron Job Endpoint (Replaces node-cron)
 app.get('/api/cron', async (req, res) => {
