@@ -1,11 +1,13 @@
 const { OpenAI } = require('openai');
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+// Groq provides an OpenAI-compatible API endpoint!
+const groq = new OpenAI({
+  apiKey: process.env.GROQ_API_KEY,
+  baseURL: "https://api.groq.com/openai/v1"
 });
 
 /**
- * Sends the certificate image buffer to OpenAI Vision model
+ * Sends the certificate image buffer to Groq's Vision model
  * for extraction and verification.
  */
 async function verifyCertificateWithAI(imageBuffer) {
@@ -13,8 +15,9 @@ async function verifyCertificateWithAI(imageBuffer) {
     const base64Image = imageBuffer.toString('base64');
     const dataUrl = `data:image/jpeg;base64,${base64Image}`;
 
-    const response = await openai.chat.completions.create({
-      model: "gpt-4o",
+    const response = await groq.chat.completions.create({
+      // Using Groq's Llama 3.2 Vision model
+      model: "llama-3.2-90b-vision-preview",
       messages: [
         {
           role: "system",
@@ -34,7 +37,7 @@ async function verifyCertificateWithAI(imageBuffer) {
     const result = JSON.parse(response.choices[0].message.content);
     return result;
   } catch (error) {
-    console.error('AI Verification Error:', error);
+    console.error('Groq AI Verification Error:', error);
     throw error;
   }
 }
