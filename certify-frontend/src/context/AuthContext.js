@@ -37,6 +37,9 @@ export const AuthProvider = ({ children }) => {
       return true;
     } catch (error) {
       console.error('Login failed:', error);
+      if (error.response && error.response.data) {
+        console.error('Exact Backend Error:', error.response.data.details);
+      }
       return false;
     }
   };
