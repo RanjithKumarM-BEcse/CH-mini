@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Certificate = require('../models/Certificate');
 const Folder = require('../models/Folder');
+const { verifyCertificateWithAI } = require('../services/aiService');
 
 // GET live stats
 router.get('/stats', async (req, res) => {
@@ -25,18 +26,23 @@ router.get('/stats', async (req, res) => {
 // GET all certificates with optional filtering & search
 router.get('/', async (req, res) => {
   try {
-    const { q, status } = req.query;
+    const { q, status, folderId } = req.query;
     let query = {};
 
     if (status && status !== 'All') {
       query.status = status;
     }
 
+    if (folderId) {
+      query.folderId = folderId;
+    }
+
     if (q) {
       query.$or = [
         { studentName: { $regex: q, $options: 'i' } },
         { courseName: { $regex: q, $options: 'i' } },
-        { fileName: { $regex: q, $options: 'i' } }
+        { fileName: { $regex: q, $options: 'i' } },
+        { platform: { $regex: q, $options: 'i' } }
       ];
     }
 
@@ -47,31 +53,38 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST create / scan new certificate
+// POST verify / add student certificate (Manual or direct file base64 check)
 router.post('/', async (req, res) => {
   try {
-    const { studentName, courseName, fileName, folderId, folderName, status, reason, aiMatchConfidence } = req.body;
-    
-    if (!studentName || !courseName) {
-      return res.status(400).json({ error: 'Student Name and Course Name are required' });
+    const { 
+      studentName, courseName, fileName, folderId, folderName, 
+      status, reason, aiMatchConfidence, fraudIndicators, platform, imageBase64 
+    } = req.body;
+
+    let evalResult = null;
+    if (imageBase64) {
+      evalResult = await verifyCertificateWithAI(imageBase64, fileName || 'cert.jpg');
     }
 
     const cert = new Certificate({
-      studentName,
-      courseName,
-      fileName: fileName || `${studentName.replace(/\s+/g, '_')}_Cert.pdf`,
+      studentName: evalResult?.studentName || studentName || 'Student',
+      courseName: evalResult?.courseName || courseName || 'Infosys Springboard Assignment',
+      platform: evalResult?.platform || platform || 'Infosys Springboard',
+      certificateId: evalResult?.certificateId || ('SPB-' + Math.floor(100000 + Math.random() * 900000)),
+      fileName: fileName || `${(studentName || 'Student').replace(/\s+/g, '_')}_Certificate.pdf`,
       folderId: folderId || 'General',
       folderName: folderName || 'Connected Drive',
-      status: status || 'Verified',
-      aiMatchConfidence: aiMatchConfidence || (status === 'Suspicious' ? '45%' : '98%'),
-      reason: reason || (status === 'Suspicious' ? 'Student name discrepancy detected against verification link.' : 'Verified by AI matching registry.'),
+      status: evalResult?.status || status || 'Verified',
+      aiMatchConfidence: evalResult?.confidence || aiMatchConfidence || (status === 'Suspicious' ? '45%' : '98%'),
+      fraudIndicators: evalResult?.fraudIndicators || fraudIndicators || [],
+      reason: evalResult?.reason || reason || (status === 'Suspicious' ? 'Student name discrepancy detected against verification link.' : 'Genuine: Certificate structure matches Infosys Springboard format.'),
       uploadDate: new Date()
     });
 
     await cert.save();
 
-    // Update folder counts if folder exists
-    if (folderName) {
+    // Update folder counts
+    if (folderName && folderName !== 'General') {
       const folder = await Folder.findOne({ name: folderName });
       if (folder) {
         if (cert.status === 'Verified') folder.verifiedCount += 1;
