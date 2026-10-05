@@ -33,6 +33,13 @@ app.get('/api/cron', async (req, res) => {
 let isConnected;
 const connectDB = async () => {
   if (isConnected) return;
+  
+  if (!process.env.MONGO_URI) {
+    console.error('CRITICAL: MONGO_URI is completely missing from Vercel Environment Variables!');
+  } else {
+    console.log('Attempting to connect to MongoDB with URI starting with:', process.env.MONGO_URI.substring(0, 15) + '...');
+  }
+
   try {
     const db = await mongoose.connect(process.env.MONGO_URI);
     isConnected = db.connections[0].readyState;
