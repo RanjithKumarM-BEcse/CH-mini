@@ -7,7 +7,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Basic Route
+// Basic Routes
+app.get('/', (req, res) => {
+  res.send('CertifyHub Backend is running! Access the API at /api');
+});
+
 app.get('/api', (req, res) => {
   res.send('CertifyHub Backend API is running on Vercel Serverless');
 });
