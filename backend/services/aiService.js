@@ -3,7 +3,6 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const jsQR = require('jsqr');
 const { Jimp } = require('jimp');
-const pdfParse = require('pdf-parse');
 
 const getGroqClient = () => {
   return new OpenAI({
@@ -88,67 +87,21 @@ async function verifyCertificateWithAI(imageBufferOrBase64, filename = 'certific
       imageBuffer = Buffer.from(base64String, 'base64');
     }
 
-    const isPdf = imageBuffer.slice(0, 5).toString().includes('%PDF') || filename.toLowerCase().endsWith('.pdf');
-    let visionExtracted = {
-      extracted_name_on_cert: 'Student',
-      course_name: 'Course Assignment',
-      verification_url: null
-    };
     let detectedUrl = null;
 
-    if (isPdf) {
-      try {
-        console.log('[PDF Parser] Processing PDF certificate:', filename);
-        const pdfData = await pdfParse(imageBuffer);
-        const pdfText = pdfData.text || '';
-        console.log('[PDF Parser] Extracted raw text length:', pdfText.length);
-
-        const foundUrls = pdfText.match(/https?:\/\/[^\s"'<>)]+/gi) || [];
-        const matchedUrl = foundUrls.find(u => /springboard|infosys|wingspan|verify|cert/i.test(u)) || foundUrls[0] || null;
-
-        const textPrompt = `You are an automated academic certificate data extraction engine.
-Examine this certificate text extracted from a student PDF:
-"""
-${pdfText.slice(0, 3000)}
-"""
-
-Extract:
-1. "extracted_name_on_cert": The exact student name awarded this certificate.
-2. "course_name": The course or program title (e.g. Infosys Springboard course name).
-3. "verification_url": Any verification URL or link.
-
-Respond ONLY with valid JSON:
-{
-  "extracted_name_on_cert": "Student Name",
-  "course_name": "Course Name",
-  "verification_url": "${matchedUrl || ''}"
-}`;
-
-        const textResponse = await groq.chat.completions.create({
-          model: "llama-3.3-70b-versatile",
-          messages: [
-            { role: "system", content: "You extract certificate data. Respond only in JSON." },
-            { role: "user", content: textPrompt }
-          ],
-          response_format: { type: "json_object" }
-        });
-
-        const parsed = JSON.parse(textResponse.choices[0].message.content);
-        visionExtracted = {
-          extracted_name_on_cert: parsed.extracted_name_on_cert || 'Student',
-          course_name: parsed.course_name || 'Infosys Springboard Assignment',
-          verification_url: parsed.verification_url || matchedUrl
-        };
-        detectedUrl = visionExtracted.verification_url;
-      } catch (pdfErr) {
-        console.warn('[PDF Parser] Notice parsing PDF:', pdfErr.message);
-      }
+    // Check if buffer is a raw PDF (fallback if not converted to image on client)
+    const isRawPdf = imageBuffer.slice(0, 5).toString().includes('%PDF');
+    if (isRawPdf) {
+      const pdfRawText = imageBuffer.toString('latin1');
+      const foundUrls = pdfRawText.match(/https?:\/\/[^\s"'<>\)]+/gi) || [];
+      detectedUrl = foundUrls.find(u => /springboard|infosys|wingspan|verify|cert/i.test(u)) || foundUrls[0] || null;
     } else {
       // Step 1A: Attempt direct QR Code Matrix decoding from image
       detectedUrl = await decodeQRCodeFromBuffer(imageBuffer);
+    }
 
-      // Step 1B: Use Vision AI to extract student name, course, and verification link from image
-      const initialVisionPrompt = `You are an automated certificate data extraction engine.
+    // Step 1B: Use Vision AI to extract student name, course, and verification link from image
+    const initialVisionPrompt = `You are an automated certificate data extraction engine.
 Examine this certificate image carefully.
 Extract:
 1. "extracted_name_on_cert": The exact student name awarded this certificate.
@@ -162,6 +115,13 @@ Respond ONLY with valid JSON:
   "verification_url": "https://..." or null
 }`;
 
+    let visionExtracted = {
+      extracted_name_on_cert: 'Student',
+      course_name: 'Course Assignment',
+      verification_url: null
+    };
+
+    if (!isRawPdf) {
       try {
         const visionResponse = await groq.chat.completions.create({
           model: "llama-3.2-90b-vision-preview",
@@ -184,7 +144,9 @@ Respond ONLY with valid JSON:
     }
 
     const finalVerificationUrl = detectedUrl || visionExtracted.verification_url;
-    const certStudentName = visionExtracted.extracted_name_on_cert || 'Student';
+    const certStudentName = visionExtracted.extracted_name_on_cert !== 'Student' 
+      ? visionExtracted.extracted_name_on_cert 
+      : filename.replace(/\.[^/.]+$/, '').replace(/[_.-]/g, ' ');
     const courseTitle = visionExtracted.course_name || 'Infosys Springboard Assignment';
 
     console.log(`[Verification Pipeline] Extracted Name on Cert: "${certStudentName}", URL: "${finalVerificationUrl}"`);
@@ -198,7 +160,7 @@ Respond ONLY with valid JSON:
     // Step 3: AI Cross-Check (Compare name on certificate vs name on website)
     if (finalVerificationUrl && scrapedWebsiteText) {
       const comparisonPrompt = `You are an automated academic certificate verification referee.
-We extracted the student name from the certificate image: "${certStudentName}".
+We extracted the student name from the certificate: "${certStudentName}".
 We scraped the official verification webpage from the QR code / verification link (${finalVerificationUrl}).
 
 Official Webpage Scraped Text:
@@ -221,7 +183,7 @@ Respond ONLY with valid JSON:
 }`;
 
       const comparisonResponse = await groq.chat.completions.create({
-        model: "llama-3.2-90b-vision-preview",
+        model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: "You verify certificate authenticity by comparing certificate text against official verification webpage text. Return JSON only." },
           { role: "user", content: comparisonPrompt }
@@ -243,7 +205,6 @@ Respond ONLY with valid JSON:
         reason: comparisonResult.reason || (comparisonResult.is_match ? 'Genuine: Student name matches the official verification record.' : 'Fake: Student name on certificate does not match the official verification record.')
       };
     } else {
-      // If no QR URL was found on certificate, or URL could not be scraped
       const reason = !finalVerificationUrl
         ? 'Suspicious: No valid QR code or verification link could be extracted from this certificate.'
         : `Suspicious: Verification link (${finalVerificationUrl}) could not be reached or returned no student data.`;
