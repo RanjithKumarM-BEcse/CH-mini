@@ -112,7 +112,8 @@ router.post('/scan-batch', async (req, res) => {
           item.base64, 
           item.name || 'certificate.pdf', 
           item.certificateText || '',
-          item.candidateBigName || ''
+          item.candidateBigName || '',
+          item.qrDecoded || null
         );
 
         const cert = new Certificate({

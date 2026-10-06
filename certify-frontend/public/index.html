@@ -27,6 +27,10 @@
     <title>CertifyHub - Certificate Authenticity Verification</title>
     <!-- PDF.js for rendering uploaded PDF certificates into high-resolution images for QR decoding -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <!-- jsQR for client-side QR code decoding from canvas -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <!-- JSZip for decoding certificate.json from Sunbird / Wingspan QR codes -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script>
       window.addEventListener('DOMContentLoaded', () => {
         if (window.pdfjsLib) {

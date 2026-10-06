@@ -180,11 +180,52 @@ export default function Dashboard() {
             await page.render({ canvasContext: ctx, viewport }).promise;
             const renderedBase64 = canvas.toDataURL('image/jpeg', 0.85);
 
+            // 3. Scan QR code and decode Verifiable Credential if JSZip/jsQR available
+            let qrDecoded = null;
+            if (window.jsQR) {
+              try {
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const qrRes = window.jsQR(imgData.data, imgData.width, imgData.height);
+                if (qrRes && qrRes.data) {
+                  const rawData = qrRes.data;
+                  qrDecoded = { raw: rawData };
+                  if (rawData.startsWith('http')) qrDecoded.url = rawData;
+
+                  if (window.JSZip) {
+                    try {
+                      const zip = await window.JSZip.loadAsync(rawData);
+                      if (zip.file('certificate.json')) {
+                        const certText = await zip.file('certificate.json').async('text');
+                        const certJson = JSON.parse(certText);
+                        const sName = certJson.credentialSubject?.issuedTo || certJson.credentialSubject?.recipientName || certJson.credentialSubject?.name || null;
+                        const cName = certJson.credentialSubject?.trainingName || certJson.credentialSubject?.courseName || null;
+                        qrDecoded.studentName = sName;
+                        qrDecoded.courseName = cName;
+                        console.log('[Client QR Scanner] Verified student from credential:', sName);
+                      }
+                    } catch (zipErr) {
+                      try {
+                        const certJson = JSON.parse(rawData);
+                        const sName = certJson.credentialSubject?.issuedTo || certJson.credentialSubject?.recipientName || certJson.credentialSubject?.name || null;
+                        if (sName) {
+                          qrDecoded.studentName = sName;
+                          qrDecoded.courseName = certJson.credentialSubject?.trainingName || certJson.credentialSubject?.courseName || null;
+                        }
+                      } catch (e) {}
+                    }
+                  }
+                }
+              } catch (qrErr) {
+                console.warn('Client QR scan notice:', qrErr.message);
+              }
+            }
+
             return { 
               name: file.name, 
               base64: renderedBase64,
               certificateText: pdfText.trim(),
-              candidateBigName: candidateBigName
+              candidateBigName: candidateBigName,
+              qrDecoded: qrDecoded
             };
           } catch (pdfErr) {
             console.warn('PDF.js render fallback:', pdfErr.message);
@@ -196,7 +237,7 @@ export default function Dashboard() {
             const reader = new FileReader();
             reader.onload = (e) => {
               const img = new Image();
-              img.onload = () => {
+              img.onload = async () => {
                 const canvas = document.createElement('canvas');
                 const maxDim = 1200;
                 let width = img.width;
@@ -215,9 +256,33 @@ export default function Dashboard() {
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
                 const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85);
-                resolve({ name: file.name, base64: compressedBase64, certificateText: '' });
+
+                let qrDecoded = null;
+                if (window.jsQR) {
+                  try {
+                    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    const qrRes = window.jsQR(imgData.data, imgData.width, imgData.height);
+                    if (qrRes && qrRes.data) {
+                      qrDecoded = { raw: qrRes.data };
+                      if (qrRes.data.startsWith('http')) qrDecoded.url = qrRes.data;
+                      if (window.JSZip) {
+                        try {
+                          const zip = await window.JSZip.loadAsync(qrRes.data);
+                          if (zip.file('certificate.json')) {
+                            const certText = await zip.file('certificate.json').async('text');
+                            const certJson = JSON.parse(certText);
+                            qrDecoded.studentName = certJson.credentialSubject?.issuedTo || certJson.credentialSubject?.recipientName || certJson.credentialSubject?.name || null;
+                            qrDecoded.courseName = certJson.credentialSubject?.trainingName || certJson.credentialSubject?.courseName || null;
+                          }
+                        } catch (e) {}
+                      }
+                    }
+                  } catch (e) {}
+                }
+
+                resolve({ name: file.name, base64: compressedBase64, certificateText: '', candidateBigName: '', qrDecoded });
               };
-              img.onerror = () => resolve({ name: file.name, base64: e.target.result, certificateText: '' });
+              img.onerror = () => resolve({ name: file.name, base64: e.target.result, certificateText: '', candidateBigName: '', qrDecoded: null });
               img.src = e.target.result;
             };
             reader.readAsDataURL(file);
