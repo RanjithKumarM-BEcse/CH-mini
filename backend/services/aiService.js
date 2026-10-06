@@ -12,6 +12,71 @@ const getGroqClient = () => {
 };
 
 /**
+ * Safely parse JSON from LLM responses even if markdown codeblocks are present
+ */
+function safeParseJSON(str, fallback = {}) {
+  if (!str) return fallback;
+  try {
+    const cleaned = str.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+    return JSON.parse(cleaned);
+  } catch (err) {
+    const match = str.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch (e) {}
+    }
+    return fallback;
+  }
+}
+
+/**
+ * Regex-based helper to extract candidate recipient name from certificate text
+ */
+function extractNameFromText(text) {
+  if (!text || typeof text !== 'string') return null;
+
+  // Patterns like "This is to certify that RANJITH KUMAR M has successfully completed"
+  const m1 = text.match(/(?:certify\s+that|awarded\s+to|presented\s+to|certifies\s+that)\s+([A-Z][A-Za-z\s.]{2,40}?)\s+(?:has|for|in|on|of|successfully|is)/i);
+  if (m1 && m1[1] && m1[1].trim().length > 2) {
+    return m1[1].trim();
+  }
+
+  // Pattern "RANJITH KUMAR M has successfully completed"
+  const m2 = text.match(/([A-Z][A-Za-z\s.]{2,40}?)\s+has\s+successfully\s+completed/i);
+  if (m2 && m2[1] && m2[1].trim().length > 2) {
+    return m2[1].trim();
+  }
+
+  return null;
+}
+
+/**
+ * Normalizes names for robust comparison (ignoring case, spaces, and punctuation)
+ */
+function normalizeName(str) {
+  if (!str) return '';
+  return str.toLowerCase().replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Checks if two student names refer to the same individual
+ */
+function checkNameMatch(nameA, nameB) {
+  const normA = normalizeName(nameA);
+  const normB = normalizeName(nameB);
+  if (!normA || !normB) return false;
+  if (normA === 'student' || normB === 'student') return false;
+  if (normA === normB) return true;
+  if (normA.includes(normB) || normB.includes(normA)) return true;
+
+  // Compare tokens (e.g. "Ranjith Kumar M" vs "M Ranjith Kumar")
+  const tokensA = normA.split(' ').filter(Boolean).sort().join(' ');
+  const tokensB = normB.split(' ').filter(Boolean).sort().join(' ');
+  return tokensA === tokensB;
+}
+
+/**
  * Attempts to decode a QR code from an image buffer using jsQR and Jimp
  */
 async function decodeQRCodeFromBuffer(imageBuffer) {
@@ -53,7 +118,7 @@ async function scrapeVerificationPage(url) {
 
     // Extract text content
     const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
-    return bodyText.slice(0, 4000); // Take first 4000 chars for AI cross-check
+    return bodyText.slice(0, 4000);
   } catch (err) {
     console.warn(`[Web Scraper] Failed to fetch verification page (${url}):`, err.message);
     return null;
@@ -62,12 +127,15 @@ async function scrapeVerificationPage(url) {
 
 /**
  * THE CORE VERIFICATION PIPELINE:
- * 1. Extract Name & QR Code / Verification Link from the certificate.
- * 2. Scrape the verification webpage.
- * 3. AI Cross-Checks the name on certificate vs the name found on the website.
- * 4. Outputs: extracted_name_on_cert, extracted_name_on_website, is_match, reason, status.
+ * 1. Extract QR Code / Verification Link from the certificate (via text, QR scanner, or PDF buffer).
+ * 2. Scrape the official verification webpage.
+ * 3. Extract the student name directly from the certificate document.
+ * 4. Extract the recipient name from the official webpage.
+ * 5. Compare the two names:
+ *    - Match -> GENUINE (Verified)
+ *    - Mismatch / Missing -> FAKE / SUSPICIOUS
  */
-async function verifyCertificateWithAI(imageBufferOrBase64, filename = 'certificate.png') {
+async function verifyCertificateWithAI(imageBufferOrBase64, filename = 'certificate.png', certificateText = '') {
   try {
     const groq = getGroqClient();
 
@@ -87,149 +155,227 @@ async function verifyCertificateWithAI(imageBufferOrBase64, filename = 'certific
       imageBuffer = Buffer.from(base64String, 'base64');
     }
 
+    // Step 1: Detect Verification URL (from certificate text, QR code, or raw PDF buffer)
     let detectedUrl = null;
 
-    // Check if buffer is a raw PDF (fallback if not converted to image on client)
-    const isRawPdf = imageBuffer.slice(0, 5).toString().includes('%PDF');
-    if (isRawPdf) {
-      const pdfRawText = imageBuffer.toString('latin1');
-      const foundUrls = pdfRawText.match(/https?:\/\/[^\s"'<>\)]+/gi) || [];
-      detectedUrl = foundUrls.find(u => /springboard|infosys|wingspan|verify|cert/i.test(u)) || foundUrls[0] || null;
-    } else {
-      // Step 1A: Attempt direct QR Code Matrix decoding from image
+    // 1A. Check if URL is present in extracted certificate text
+    if (certificateText) {
+      const textUrls = certificateText.match(/https?:\/\/[^\s"'<>\)]+/gi) || [];
+      detectedUrl = textUrls.find(u => /springboard|infosys|wingspan|verify|cert/i.test(u)) || textUrls[0] || null;
+    }
+
+    // 1B. If not found in text, attempt direct QR Code Matrix decoding from image
+    if (!detectedUrl && imageBuffer) {
       detectedUrl = await decodeQRCodeFromBuffer(imageBuffer);
     }
 
-    // Step 1B: Use Vision AI to extract student name, course, and verification link from image
-    const initialVisionPrompt = `You are an automated certificate data extraction engine.
-Examine this certificate image carefully.
-Extract:
-1. "extracted_name_on_cert": The exact student name awarded this certificate.
-2. "course_name": The course or program title (e.g. Infosys Springboard course name).
-3. "verification_url": Any verification URL, link, or QR code destination URL visible anywhere on the certificate (e.g., https://infyspringboard.onwingspan.com/..., https://verify.springboard.infosys.com/..., or similar verification link). If none found, return null.
+    // 1C. Check if buffer is a raw PDF containing a URL
+    if (!detectedUrl && imageBuffer) {
+      const isRawPdf = imageBuffer.slice(0, 5).toString().includes('%PDF');
+      if (isRawPdf) {
+        const pdfRawText = imageBuffer.toString('latin1');
+        const foundUrls = pdfRawText.match(/https?:\/\/[^\s"'<>\)]+/gi) || [];
+        detectedUrl = foundUrls.find(u => /springboard|infosys|wingspan|verify|cert/i.test(u)) || foundUrls[0] || null;
+      }
+    }
+
+    console.log(`[Verification Pipeline] Detected Verification URL: "${detectedUrl}"`);
+
+    // Step 2: Scrape the Verification Webpage
+    let scrapedWebsiteText = null;
+    if (detectedUrl) {
+      scrapedWebsiteText = await scrapeVerificationPage(detectedUrl);
+    }
+
+    // Step 3: Extract Name on Certificate and Name on Official Website & Match
+    let certStudentName = extractNameFromText(certificateText);
+    let websiteStudentName = null;
+    let courseTitle = 'Infosys Springboard Assignment';
+    let isMatch = false;
+    let matchReason = '';
+
+    // If we have certificate text (from PDF or OCR), use Llama 3.3 to extract and cross-check
+    if (certificateText && certificateText.length > 10) {
+      const comparisonPrompt = `You are an automated academic certificate verification referee.
+
+We have two sources of information:
+SOURCE 1 - TEXT EXTRACTED DIRECTLY FROM THE CERTIFICATE FILE:
+"""
+${certificateText.slice(0, 3000)}
+"""
+
+SOURCE 2 - TEXT SCRAPED FROM THE OFFICIAL VERIFICATION WEBPAGE (${detectedUrl || 'No URL'}):
+"""
+${scrapedWebsiteText || 'No official verification webpage accessible'}
+"""
+
+YOUR INSTRUCTIONS:
+1. Extract "extracted_name_on_cert": The exact recipient / student name printed on the certificate who earned the credential (look for the person's name, e.g., following "This is to certify that", "awarded to", "presented to", or prominently featured as the recipient). Do NOT use course titles (like "Programming Fundamentals using Python") or instructor names.
+2. Extract "course_name": The course or credential title.
+3. Extract "extracted_name_on_website": The recipient name registered on the official verification webpage (if available).
+4. Compare "extracted_name_on_cert" with "extracted_name_on_website":
+   - "is_match": true IF and only IF both names identify the same student (allow minor differences in casing, initials, or spacing, e.g. "RANJITH KUMAR M" matches "Ranjith Kumar M" or "Ranjith Kumar").
+   - "is_match": false IF the certificate has one student's name, but the official verification page belongs to a different person (indicating a forged/photoshopped certificate), or if the official page shows no record.
+5. Provide a clear "reason":
+   - If match: "Genuine: Student name on certificate ('<name>') matches the official verification record."
+   - If mismatch: "Fake / Suspicious: Certificate says '<name on cert>', but official verification record belongs to '<name on website>'."
 
 Respond ONLY with valid JSON:
 {
   "extracted_name_on_cert": "Student Name",
-  "course_name": "Course Name",
-  "verification_url": "https://..." or null
+  "course_name": "Course Title",
+  "extracted_name_on_website": "Name on Website or 'Not Found'",
+  "is_match": true,
+  "reason": "Clear explanation"
 }`;
 
-    let visionExtracted = {
-      extracted_name_on_cert: 'Student',
-      course_name: 'Course Assignment',
-      verification_url: null
-    };
-
-    if (!isRawPdf) {
       try {
+        const comparisonResponse = await groq.chat.completions.create({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            { role: "system", content: "You verify certificate authenticity by comparing certificate text against official verification webpage text. Return JSON only." },
+            { role: "user", content: comparisonPrompt }
+          ],
+          response_format: { type: "json_object" }
+        });
+
+        const parsed = safeParseJSON(comparisonResponse.choices[0].message.content);
+        if (parsed.extracted_name_on_cert && parsed.extracted_name_on_cert !== 'Student Name') {
+          certStudentName = parsed.extracted_name_on_cert;
+        }
+        if (parsed.extracted_name_on_website) {
+          websiteStudentName = parsed.extracted_name_on_website;
+        }
+        if (parsed.course_name) {
+          courseTitle = parsed.course_name;
+        }
+        isMatch = Boolean(parsed.is_match);
+        matchReason = parsed.reason || '';
+      } catch (err) {
+        console.warn('Llama 3.3 verification notice:', err.message);
+      }
+    } else {
+      // Certificate text was not directly provided (image upload).
+      // Attempt to extract via Vision or fallback
+      try {
+        const visionPrompt = `You are an automated academic certificate verification referee.
+Examine this certificate image carefully.
+
+OFFICIAL WEBPAGE TEXT (scraped from the verification QR code / URL ${detectedUrl || 'None'}):
+"""
+${scrapedWebsiteText || 'No verification webpage accessible'}
+"""
+
+YOUR INSTRUCTIONS:
+1. Extract "extracted_name_on_cert": Read the student / recipient name printed on the certificate image.
+2. Extract "course_name": The course or program title.
+3. Extract "extracted_name_on_website": The recipient name registered on the official verification webpage.
+4. "is_match": true if the name on the certificate matches the name registered on the official webpage. false if they are different people or if no official record exists.
+5. "reason": Clear explanation of whether the student name on the certificate matches the official verification record.
+
+Respond ONLY with valid JSON:
+{
+  "extracted_name_on_cert": "Student Name",
+  "course_name": "Course Title",
+  "extracted_name_on_website": "Name on Website or 'Not Found'",
+  "is_match": true,
+  "reason": "Clear explanation"
+}`;
+
+        // Ensure image is reasonably sized for Groq Vision
+        let visionDataUrl = dataUrl;
+        if (imageBuffer) {
+          try {
+            const jimpImg = await Jimp.read(imageBuffer);
+            if (jimpImg.bitmap.width > 1200 || jimpImg.bitmap.height > 1200) {
+              jimpImg.resize({ w: 1200, h: Jimp.AUTO });
+              const resized = await jimpImg.getBuffer('image/jpeg', { quality: 80 });
+              visionDataUrl = `data:image/jpeg;base64,${resized.toString('base64')}`;
+            }
+          } catch (resizeErr) {}
+        }
+
         const visionResponse = await groq.chat.completions.create({
           model: "llama-3.2-90b-vision-preview",
           messages: [
-            { role: "system", content: "You extract certificate data. Respond only in JSON." },
+            { role: "system", content: "You extract certificate data and compare with official verification webpage text. Return JSON only." },
             {
               role: "user",
               content: [
-                { type: "text", text: initialVisionPrompt },
-                { type: "image_url", image_url: { url: dataUrl } }
+                { type: "text", text: visionPrompt },
+                { type: "image_url", image_url: { url: visionDataUrl } }
               ]
             }
           ],
           response_format: { type: "json_object" }
         });
-        visionExtracted = JSON.parse(visionResponse.choices[0].message.content);
-      } catch (e) {
-        console.warn('Vision extraction notice:', e.message);
+
+        const parsedVision = safeParseJSON(visionResponse.choices[0].message.content);
+        if (parsedVision.extracted_name_on_cert && parsedVision.extracted_name_on_cert !== 'Student Name') {
+          certStudentName = parsedVision.extracted_name_on_cert;
+        }
+        if (parsedVision.extracted_name_on_website) {
+          websiteStudentName = parsedVision.extracted_name_on_website;
+        }
+        if (parsedVision.course_name) {
+          courseTitle = parsedVision.course_name;
+        }
+        isMatch = Boolean(parsedVision.is_match);
+        matchReason = parsedVision.reason || '';
+      } catch (visionErr) {
+        console.warn('Vision extraction notice:', visionErr.message);
       }
     }
 
-    const finalVerificationUrl = detectedUrl || visionExtracted.verification_url;
-    const certStudentName = visionExtracted.extracted_name_on_cert !== 'Student' 
-      ? visionExtracted.extracted_name_on_cert 
-      : filename.replace(/\.[^/.]+$/, '').replace(/[_.-]/g, ' ');
-    const courseTitle = visionExtracted.course_name || 'Infosys Springboard Assignment';
-
-    console.log(`[Verification Pipeline] Extracted Name on Cert: "${certStudentName}", URL: "${finalVerificationUrl}"`);
-
-    // Step 2: Scrape the Verification Webpage
-    let scrapedWebsiteText = null;
-    if (finalVerificationUrl) {
-      scrapedWebsiteText = await scrapeVerificationPage(finalVerificationUrl);
+    // Programmatic verification safeguard:
+    // If both names exist and match string normalization, enforce isMatch = true
+    if (certStudentName && websiteStudentName && websiteStudentName !== 'Not Found') {
+      if (checkNameMatch(certStudentName, websiteStudentName)) {
+        isMatch = true;
+        matchReason = `Genuine: Certificate student name ('${certStudentName}') matches the official verification record ('${websiteStudentName}').`;
+      } else {
+        isMatch = false;
+        matchReason = `Fake / Suspicious: Certificate displays student name '${certStudentName}', but the official verification record belongs to '${websiteStudentName}'.`;
+      }
     }
 
-    // Step 3: AI Cross-Check (Compare name on certificate vs name on website)
-    if (finalVerificationUrl && scrapedWebsiteText) {
-      const comparisonPrompt = `You are an automated academic certificate verification referee.
-We extracted the student name from the certificate: "${certStudentName}".
-We scraped the official verification webpage from the QR code / verification link (${finalVerificationUrl}).
-
-Official Webpage Scraped Text:
-"""
-${scrapedWebsiteText}
-"""
-
-Task:
-1. Find the student name registered on the official verification website ("extracted_name_on_website").
-2. Compare "extracted_name_on_cert" with "extracted_name_on_website".
-3. Check "is_match": true if both names identify the same student (allowing for minor spacing, middle names, or capitalization differences). false if the certificate has one student's name, but the official link registers a DIFFERENT person (indicating a forged/photoshopped certificate), or if the website states invalid/no record.
-4. Provide a clear reason explaining whether the names match or differ.
-
-Respond ONLY with valid JSON:
-{
-  "extracted_name_on_cert": "${certStudentName}",
-  "extracted_name_on_website": "Name found on official website or 'Not Found'",
-  "is_match": true | false,
-  "reason": "Brief explanation of whether the student name on the certificate matches the student registered on the verification URL."
-}`;
-
-      const comparisonResponse = await groq.chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: "You verify certificate authenticity by comparing certificate text against official verification webpage text. Return JSON only." },
-          { role: "user", content: comparisonPrompt }
-        ],
-        response_format: { type: "json_object" }
-      });
-
-      const comparisonResult = JSON.parse(comparisonResponse.choices[0].message.content);
-
-      return {
-        studentName: certStudentName,
-        courseName: courseTitle,
-        extracted_name_on_cert: comparisonResult.extracted_name_on_cert || certStudentName,
-        extracted_name_on_website: comparisonResult.extracted_name_on_website || 'Not Found',
-        verification_url: finalVerificationUrl,
-        is_match: Boolean(comparisonResult.is_match),
-        status: comparisonResult.is_match ? 'Verified' : 'Suspicious',
-        aiMatchConfidence: comparisonResult.is_match ? '99%' : '40%',
-        reason: comparisonResult.reason || (comparisonResult.is_match ? 'Genuine: Student name matches the official verification record.' : 'Fake: Student name on certificate does not match the official verification record.')
-      };
-    } else {
-      const reason = !finalVerificationUrl
-        ? 'Suspicious: No valid QR code or verification link could be extracted from this certificate.'
-        : `Suspicious: Verification link (${finalVerificationUrl}) could not be reached or returned no student data.`;
-
-      return {
-        studentName: certStudentName,
-        courseName: courseTitle,
-        extracted_name_on_cert: certStudentName,
-        extracted_name_on_website: 'No verification record accessible',
-        verification_url: finalVerificationUrl || 'None detected',
-        is_match: false,
-        status: 'Suspicious',
-        aiMatchConfidence: '35%',
-        reason: reason
-      };
+    // Final fallback defaults if names could not be found
+    if (!certStudentName) {
+      certStudentName = 'Student (Name not found)';
     }
+    if (!websiteStudentName) {
+      websiteStudentName = detectedUrl ? 'Verification record not accessible' : 'No QR / Link Detected';
+    }
+
+    if (!detectedUrl) {
+      isMatch = false;
+      matchReason = 'Suspicious: No valid QR code or verification link could be found on this certificate.';
+    }
+
+    const finalStatus = isMatch ? 'Verified' : 'Suspicious';
+
+    console.log(`[Verification Pipeline Result] Name on Cert: "${certStudentName}", Website Name: "${websiteStudentName}", Status: ${finalStatus}`);
+
+    return {
+      studentName: certStudentName,
+      courseName: courseTitle,
+      extracted_name_on_cert: certStudentName,
+      extracted_name_on_website: websiteStudentName,
+      verification_url: detectedUrl || '',
+      is_match: isMatch,
+      status: finalStatus,
+      aiMatchConfidence: isMatch ? '99%' : '40%',
+      reason: matchReason || (isMatch ? 'Genuine: Student name matches official verification record.' : 'Fake: Student name does not match official verification record.')
+    };
 
   } catch (error) {
     console.error('AI Verification Pipeline Error:', error);
     return {
-      studentName: 'Student (Manual Review Needed)',
+      studentName: 'Student (Inspection Failed)',
       courseName: 'Course Assignment',
       extracted_name_on_cert: 'Unknown',
       extracted_name_on_website: 'Unknown',
-      verification_url: 'None',
+      verification_url: '',
       is_match: false,
       status: 'Suspicious',
       aiMatchConfidence: '50%',

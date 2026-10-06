@@ -90,21 +90,48 @@ export default function Dashboard() {
     try {
       // Helper to process PDF or image files cleanly
       const processFile = async (file) => {
-        // If it's a PDF and PDF.js is available, render page 1 to crisp image canvas
+        // If it's a PDF and PDF.js is available, extract all text and render page 1
         if ((file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) && window.pdfjsLib) {
           try {
+            if (!window.pdfjsLib.GlobalWorkerOptions.workerSrc) {
+              window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+            }
             const arrayBuffer = await file.arrayBuffer();
             const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
             const pdf = await loadingTask.promise;
+
+            // 1. EXTRACT ALL EMBEDDED TEXT FROM THE PDF DOCUMENT
+            let pdfText = '';
+            for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+              try {
+                const pageItem = await pdf.getPage(pageNum);
+                const textContent = await pageItem.getTextContent();
+                const pageStrings = textContent.items.map(item => item.str).join(' ');
+                pdfText += pageStrings + '\n';
+              } catch (textErr) {
+                console.warn('PDF text extraction notice:', textErr.message);
+              }
+            }
+
+            // 2. Render Page 1 to optimized canvas for sharp QR code decoding
             const page = await pdf.getPage(1);
-            const viewport = page.getViewport({ scale: 2.0 });
+            const initialViewport = page.getViewport({ scale: 1.0 });
+            const maxDim = 1200;
+            const scale = Math.min(maxDim / initialViewport.width, maxDim / initialViewport.height, 2.0);
+            const viewport = page.getViewport({ scale: Math.max(scale, 1.2) });
+
             const canvas = document.createElement('canvas');
             canvas.width = viewport.width;
             canvas.height = viewport.height;
             const ctx = canvas.getContext('2d');
             await page.render({ canvasContext: ctx, viewport }).promise;
-            const renderedBase64 = canvas.toDataURL('image/jpeg', 0.95);
-            return { name: file.name, base64: renderedBase64 };
+            const renderedBase64 = canvas.toDataURL('image/jpeg', 0.85);
+
+            return { 
+              name: file.name, 
+              base64: renderedBase64,
+              certificateText: pdfText.trim()
+            };
           } catch (pdfErr) {
             console.warn('PDF.js render fallback:', pdfErr.message);
           }
@@ -117,7 +144,7 @@ export default function Dashboard() {
               const img = new Image();
               img.onload = () => {
                 const canvas = document.createElement('canvas');
-                const maxDim = 1800;
+                const maxDim = 1200;
                 let width = img.width;
                 let height = img.height;
                 if (width > maxDim || height > maxDim) {
@@ -133,10 +160,10 @@ export default function Dashboard() {
                 canvas.height = height;
                 const ctx = canvas.getContext('2d');
                 ctx.drawImage(img, 0, 0, width, height);
-                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.9);
-                resolve({ name: file.name, base64: compressedBase64 });
+                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85);
+                resolve({ name: file.name, base64: compressedBase64, certificateText: '' });
               };
-              img.onerror = () => resolve({ name: file.name, base64: e.target.result });
+              img.onerror = () => resolve({ name: file.name, base64: e.target.result, certificateText: '' });
               img.src = e.target.result;
             };
             reader.readAsDataURL(file);
@@ -146,7 +173,7 @@ export default function Dashboard() {
         // Raw fallback
         return new Promise((resolve) => {
           const reader = new FileReader();
-          reader.onloadend = () => resolve({ name: file.name, base64: reader.result });
+          reader.onloadend = () => resolve({ name: file.name, base64: reader.result, certificateText: '' });
           reader.readAsDataURL(file);
         });
       };
@@ -192,6 +219,18 @@ export default function Dashboard() {
       setCertificates(prev => prev.filter(c => c._id !== id));
     } catch (err) {
       alert('Failed to delete item');
+    }
+  };
+
+  // Clear all records from database
+  const handleClearAll = async () => {
+    if (!window.confirm('Clear all verification records from the table?')) return;
+    try {
+      await axios.delete(`${API_URL}/certificates/clear-all`);
+      setCertificates([]);
+      setShowImportView(true);
+    } catch (err) {
+      alert('Failed to clear records: ' + (err.response?.data?.error || err.message));
     }
   };
 
@@ -421,6 +460,14 @@ export default function Dashboard() {
                 >
                   <Plus className="w-3.5 h-3.5" />
                   Scan New Folder / Files
+                </button>
+                <button
+                  onClick={handleClearAll}
+                  className="px-3 py-2 bg-white border border-red-200 hover:bg-red-50 text-red-600 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
+                  title="Clear all records from table"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  Clear Table
                 </button>
               </div>
             </div>

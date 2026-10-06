@@ -108,7 +108,11 @@ router.post('/scan-batch', async (req, res) => {
 
     for (const item of files) {
       try {
-        const evalResult = await verifyCertificateWithAI(item.base64, item.name || 'certificate.jpg');
+        const evalResult = await verifyCertificateWithAI(
+          item.base64, 
+          item.name || 'certificate.pdf', 
+          item.certificateText || ''
+        );
 
         const cert = new Certificate({
           studentName: evalResult.studentName || evalResult.extracted_name_on_cert || item.name.replace(/\.[^/.]+$/, ''),
@@ -148,7 +152,7 @@ router.post('/', async (req, res) => {
 
     let evalResult = null;
     if (imageBase64) {
-      evalResult = await verifyCertificateWithAI(imageBase64, fileName || 'cert.jpg');
+      evalResult = await verifyCertificateWithAI(imageBase64, fileName || 'cert.pdf', req.body.certificateText || '');
     }
 
     const finalStudentName = evalResult?.studentName || studentName || 'Student';
