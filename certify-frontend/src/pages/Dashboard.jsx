@@ -81,6 +81,54 @@ export default function Dashboard() {
     setErrorMessage('');
   };
 
+  // Extract prominent student name from PDF text items based on font size & layout
+  const extractCandidateNameFromPdf = (items) => {
+    if (!items || items.length === 0) return '';
+    const ignoredWords = /^(certificate|of|completion|achievement|infosys|springboard|course|congratulations|successful|completed|assessment|learning|foundation|executive|president|head|authorized|signatory|date|issued|awarded|to|certify|that|for|in|on|at|and|the|a|an|program|fellowship|recognition|presented|by|hereby|this|signature|director)$/i;
+    const courseWords = /programming|fundamentals|python|java|cloud|developer|engineer|foundation|primer|data|science|artificial|intelligence|ai/i;
+
+    const valid = items.filter(i => i.str && i.str.trim().length > 0);
+    if (valid.length === 0) return '';
+
+    const parsed = valid.map(i => ({
+      text: i.str.trim(),
+      size: Math.round(Math.abs(i.transform?.[0]) || Math.abs(i.transform?.[3]) || i.height || 0),
+      y: Math.round(i.transform?.[5] || 0)
+    }));
+
+    const maxFontSize = Math.max(...parsed.map(p => p.size), 0);
+    if (maxFontSize === 0) return '';
+
+    // Big candidates must be prominent font size (>= 60% of max font size)
+    const bigCandidates = parsed.filter(p => {
+      if (p.size < maxFontSize * 0.6) return false;
+      const words = p.text.split(/\s+/).filter(Boolean);
+      return !words.every(w => ignoredWords.test(w));
+    });
+
+    // Group items that appear on the same horizontal line
+    const groupedByY = {};
+    bigCandidates.forEach(item => {
+      const key = Math.round(item.y / 15) * 15;
+      if (!groupedByY[key]) groupedByY[key] = [];
+      groupedByY[key].push(item);
+    });
+
+    let bestName = '';
+    let bestSize = 0;
+    for (const key in groupedByY) {
+      const lineItems = groupedByY[key];
+      const avgSize = lineItems.reduce((acc, i) => acc + i.size, 0) / lineItems.length;
+      const lineText = lineItems.map(i => i.text).join(' ').replace(/\s+/g, ' ').trim();
+      if (courseWords.test(lineText)) continue;
+      if (lineText.length >= 3 && avgSize > bestSize) {
+        bestSize = avgSize;
+        bestName = lineText;
+      }
+    }
+    return bestName;
+  };
+
   const handleScanFiles = async () => {
     if (selectedFiles.length === 0) return;
 
@@ -102,12 +150,17 @@ export default function Dashboard() {
 
             // 1. EXTRACT ALL EMBEDDED TEXT FROM THE PDF DOCUMENT
             let pdfText = '';
+            let candidateBigName = '';
             for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
               try {
                 const pageItem = await pdf.getPage(pageNum);
                 const textContent = await pageItem.getTextContent();
                 const pageStrings = textContent.items.map(item => item.str).join(' ');
                 pdfText += pageStrings + '\n';
+
+                if (pageNum === 1 && textContent.items) {
+                  candidateBigName = extractCandidateNameFromPdf(textContent.items);
+                }
               } catch (textErr) {
                 console.warn('PDF text extraction notice:', textErr.message);
               }
@@ -130,7 +183,8 @@ export default function Dashboard() {
             return { 
               name: file.name, 
               base64: renderedBase64,
-              certificateText: pdfText.trim()
+              certificateText: pdfText.trim(),
+              candidateBigName: candidateBigName
             };
           } catch (pdfErr) {
             console.warn('PDF.js render fallback:', pdfErr.message);

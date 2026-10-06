@@ -111,7 +111,8 @@ router.post('/scan-batch', async (req, res) => {
         const evalResult = await verifyCertificateWithAI(
           item.base64, 
           item.name || 'certificate.pdf', 
-          item.certificateText || ''
+          item.certificateText || '',
+          item.candidateBigName || ''
         );
 
         const cert = new Certificate({
