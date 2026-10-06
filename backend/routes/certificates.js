@@ -50,10 +50,56 @@ router.get('/', async (req, res) => {
   }
 });
 
+// POST load sample test batch for demo
+router.post('/demo', async (req, res) => {
+  try {
+    const demoItems = [
+      {
+        studentName: 'Ranjith Kumar M',
+        courseName: 'Infosys Springboard - Python Foundation',
+        fileName: 'Ranjith_Kumar_Infosys_Cert.pdf',
+        extracted_name_on_cert: 'Ranjith Kumar M',
+        extracted_name_on_website: 'Ranjith Kumar M',
+        verification_url: 'https://verify.springboard.infosys.com/cert/SPB-849201',
+        is_match: true,
+        status: 'Verified',
+        reason: 'Genuine: Name on certificate matches the student name on the official Infosys Springboard verification registry.'
+      },
+      {
+        studentName: 'Praveen S',
+        courseName: 'Infosys Springboard - Cloud & DevOps',
+        fileName: 'Praveen_Cloud_Assignment.jpg',
+        extracted_name_on_cert: 'Praveen S',
+        extracted_name_on_website: 'Karthik S',
+        verification_url: 'https://verify.springboard.infosys.com/cert/SPB-310948',
+        is_match: false,
+        status: 'Suspicious',
+        reason: 'Fake / Mismatch: Certificate displays student name "Praveen S", but the official verification link belongs to "Karthik S". Name was edited.'
+      },
+      {
+        studentName: 'Ananya Sharma',
+        courseName: 'Infosys Springboard - Artificial Intelligence Primer',
+        fileName: 'Ananya_AI_Certificate.png',
+        extracted_name_on_cert: 'Ananya Sharma',
+        extracted_name_on_website: 'Ananya Sharma',
+        verification_url: 'https://verify.springboard.infosys.com/cert/SPB-592014',
+        is_match: true,
+        status: 'Verified',
+        reason: 'Genuine: Student name matches the official verification registry.'
+      }
+    ];
+
+    const created = await Certificate.insertMany(demoItems);
+    res.json(created);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load demo data', details: err.message });
+  }
+});
+
 // POST Batch Scan (Direct file base64 uploads)
 router.post('/scan-batch', async (req, res) => {
   try {
-    const { files } = req.body; // Array of { name, base64 }
+    const { files } = req.body;
     if (!files || !Array.isArray(files) || files.length === 0) {
       return res.status(400).json({ error: 'Please provide at least one certificate file to scan' });
     }

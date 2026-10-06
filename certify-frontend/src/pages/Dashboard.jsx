@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { 
   ShieldAlert, CheckCircle2, Download, RefreshCw, 
-  ExternalLink, Upload, FolderSync, Plus, Trash2
+  ExternalLink, Upload, FolderSync, Plus, Trash2, Sparkles, AlertCircle
 } from 'lucide-react';
 import axios from 'axios';
 import DashboardLayout from '../layouts/DashboardLayout';
@@ -15,6 +15,7 @@ export default function Dashboard() {
   const [driveUrl, setDriveUrl] = useState('');
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [showImportView, setShowImportView] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   const API_URL = process.env.REACT_APP_API_URL || 'https://ch-mini-backend.vercel.app/api';
 
@@ -45,6 +46,8 @@ export default function Dashboard() {
     if (!driveUrl.trim()) return;
 
     setLoading(true);
+    setErrorMessage('');
+
     try {
       // 1. Create/register folder
       const folderRes = await axios.post(`${API_URL}/folders`, {
@@ -54,16 +57,18 @@ export default function Dashboard() {
 
       // 2. Scan folder
       if (folderRes.data?._id) {
-        await axios.post(`${API_URL}/folders/${folderRes.data._id}/scan`);
+        const scanRes = await axios.post(`${API_URL}/folders/${folderRes.data._id}/scan`);
+        if (scanRes.data?.result?.filesProcessed === 0) {
+          setErrorMessage('Scan completed, but 0 certificate files were found in this Google Drive folder. Please ensure the folder has image/PDF certificates and is set to "Anyone with the link can view".');
+        }
       }
 
       await loadCertificates();
       setShowImportView(false);
       setDriveUrl('');
     } catch (err) {
-      alert('Drive Scan notice: ' + (err.response?.data?.details || err.response?.data?.error || err.message));
-      await loadCertificates();
-      setShowImportView(false);
+      const msg = err.response?.data?.details || err.response?.data?.error || err.message;
+      setErrorMessage(`Drive Scan: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -73,14 +78,17 @@ export default function Dashboard() {
   const handleFileUpload = (e) => {
     const files = Array.from(e.target.files);
     setSelectedFiles(files);
+    setErrorMessage('');
   };
 
   const handleScanFiles = async () => {
     if (selectedFiles.length === 0) return;
 
     setLoading(true);
+    setErrorMessage('');
+
     try {
-      // Convert all files to base64
+      // Convert files to base64
       const filePromises = selectedFiles.map(file => {
         return new Promise((resolve) => {
           const reader = new FileReader();
@@ -105,7 +113,23 @@ export default function Dashboard() {
       setShowImportView(false);
       setSelectedFiles([]);
     } catch (err) {
-      alert('Scan error: ' + (err.response?.data?.error || err.message));
+      const msg = err.response?.data?.error || err.message;
+      setErrorMessage(`File Scan Error: ${msg}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // One-click demo test batch
+  const handleLoadDemo = async () => {
+    setLoading(true);
+    setErrorMessage('');
+    try {
+      await axios.post(`${API_URL}/certificates/demo`);
+      await loadCertificates();
+      setShowImportView(false);
+    } catch (err) {
+      setErrorMessage('Failed to load demo: ' + (err.response?.data?.error || err.message));
     } finally {
       setLoading(false);
     }
@@ -125,6 +149,7 @@ export default function Dashboard() {
   // Clear all and start fresh batch
   const handleStartNewBatch = () => {
     setShowImportView(true);
+    setErrorMessage('');
   };
 
   // Export CSV
@@ -175,6 +200,17 @@ export default function Dashboard() {
     <DashboardLayout>
       <div className="max-w-5xl mx-auto space-y-6">
 
+        {/* ERROR / NOTICE BANNER */}
+        {errorMessage && (
+          <div className="p-4 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs flex items-start gap-3">
+            <AlertCircle className="w-4 h-4 shrink-0 text-red-600 mt-0.5" />
+            <div className="space-y-1">
+              <span className="font-bold">Scan Notice:</span>
+              <p className="leading-relaxed">{errorMessage}</p>
+            </div>
+          </div>
+        )}
+
         {/* LOADING STATE */}
         {loading && (
           <div className="bg-white border border-brand-200 rounded-2xl p-8 text-center shadow-sm space-y-4 animate-pulse">
@@ -183,12 +219,12 @@ export default function Dashboard() {
               Scanning Certificates in Progress...
             </h3>
             <p className="text-sm text-slate-500 max-w-md mx-auto">
-              Decoding QR codes & verification links, scraping official webpages, and matching student names to identify genuine vs fake certificates.
+              Extracting QR codes & links, scraping official webpages, and matching student names to catch fakes.
             </p>
           </div>
         )}
 
-        {/* STEP 1: IMPORT FROM DRIVE OR FILE (WHEN REQUESTED OR NO DATA) */}
+        {/* STEP 1: IMPORT FROM DRIVE OR FILE */}
         {!loading && (showImportView || certificates.length === 0) && (
           <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6">
             <div className="text-center max-w-xl mx-auto">
@@ -208,9 +244,9 @@ export default function Dashboard() {
                   <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center">
                     <FolderSync className="w-5 h-5" />
                   </div>
-                  <h3 className="font-bold text-slate-900 text-base">From Google Drive</h3>
+                  <h3 className="font-bold text-slate-900 text-base">Option A: Google Drive Folder</h3>
                   <p className="text-xs text-slate-500">
-                    Paste the shared Google Drive folder link containing your students' assignment certificates.
+                    Paste the shared Google Drive folder link containing the student certificates.
                   </p>
                   <form onSubmit={handleDriveScan} className="space-y-3 pt-2">
                     <input 
@@ -239,7 +275,7 @@ export default function Dashboard() {
                   <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
                     <Upload className="w-5 h-5" />
                   </div>
-                  <h3 className="font-bold text-slate-900 text-base">Select Certificate Files</h3>
+                  <h3 className="font-bold text-slate-900 text-base">Option B: Select Certificate Files Directly</h3>
                   <p className="text-xs text-slate-500">
                     Select certificate images or PDFs directly from your computer (select multiple files at once).
                   </p>
@@ -274,14 +310,27 @@ export default function Dashboard() {
 
             </div>
 
+            {/* Quick Demo Button */}
+            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <span className="text-xs text-slate-400">Want to test the results table right away?</span>
+              <button
+                type="button"
+                onClick={handleLoadDemo}
+                className="px-3.5 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors flex items-center gap-1.5"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                Load Sample Test Batch
+              </button>
+            </div>
+
             {certificates.length > 0 && (
-              <div className="text-center pt-2">
+              <div className="text-center pt-1">
                 <button
                   type="button"
                   onClick={() => setShowImportView(false)}
                   className="text-xs text-slate-500 hover:text-slate-800 underline font-medium"
                 >
-                  ← Back to Previous Results
+                  ← Back to Scanned Results
                 </button>
               </div>
             )}
@@ -322,7 +371,7 @@ export default function Dashboard() {
                   className="px-3.5 py-2 bg-brand-600 hover:bg-brand-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                  Scan New Folder
+                  Scan New Folder / Files
                 </button>
               </div>
             </div>

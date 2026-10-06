@@ -25,25 +25,37 @@ async function scanDriveFolder(folderDoc) {
   const folderId = extractFolderId(folderDoc.driveFolderId || folderDoc.name);
   const apiKey = process.env.GOOGLE_DRIVE_API_KEY;
 
+  if (!apiKey) {
+    folderDoc.status = 'Error';
+    await folderDoc.save();
+    throw new Error(
+      'GOOGLE_DRIVE_API_KEY is not set in Vercel backend environment variables. ' +
+      'Please add GOOGLE_DRIVE_API_KEY in Vercel, or select the certificate files directly using the "Select Certificate Files" option.'
+    );
+  }
+
   folderDoc.status = 'Syncing';
   await folderDoc.save();
 
   try {
-    let driveFiles = [];
+    const drive = google.drive({ version: 'v3', auth: apiKey });
+    
+    // Query Google Drive for images or PDFs in this folder
+    const res = await drive.files.list({
+      q: `'${folderId}' in parents and trashed = false and (mimeType contains 'image/' or mimeType = 'application/pdf')`,
+      fields: 'files(id, name, mimeType, webViewLink, thumbnailLink)',
+      pageSize: 30
+    });
 
-    // Attempt querying official Google Drive API v3
-    if (apiKey) {
-      try {
-        const drive = google.drive({ version: 'v3', auth: apiKey });
-        const res = await drive.files.list({
-          q: `'${folderId}' in parents and trashed = false and (mimeType contains 'image/' or mimeType = 'application/pdf')`,
-          fields: 'files(id, name, mimeType, webViewLink, thumbnailLink)',
-          pageSize: 25
-        });
-        driveFiles = res.data.files || [];
-      } catch (err) {
-        console.warn('Google Drive API query error:', err.message);
-      }
+    const driveFiles = res.data.files || [];
+
+    if (driveFiles.length === 0) {
+      folderDoc.status = 'Synced';
+      await folderDoc.save();
+      throw new Error(
+        `No image or PDF files were found in Google Drive folder (${folderId}). ` +
+        'Please ensure the folder contains certificate files and is shared with "Anyone with the link can view".'
+      );
     }
 
     let verifiedCount = 0;
@@ -122,7 +134,7 @@ async function scanDriveFolder(folderDoc) {
 
     return { success: true, verifiedCount, suspiciousCount, filesProcessed: driveFiles.length };
   } catch (error) {
-    console.error('Scan Folder Error:', error);
+    console.error('Scan Folder Error:', error.message);
     folderDoc.status = 'Error';
     await folderDoc.save();
     throw error;
