@@ -88,45 +88,65 @@ export default function Dashboard() {
     setErrorMessage('');
 
     try {
-      // Helper to optimize image resolution/size before uploading
-      const processFile = (file) => {
-        return new Promise((resolve) => {
-          if (!file.type || !file.type.startsWith('image/')) {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve({ name: file.name, base64: reader.result });
-            reader.readAsDataURL(file);
-            return;
+      // Helper to process PDF or image files cleanly
+      const processFile = async (file) => {
+        // If it's a PDF and PDF.js is available, render page 1 to crisp image canvas
+        if ((file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) && window.pdfjsLib) {
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
+            const pdf = await loadingTask.promise;
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 2.0 });
+            const canvas = document.createElement('canvas');
+            canvas.width = viewport.width;
+            canvas.height = viewport.height;
+            const ctx = canvas.getContext('2d');
+            await page.render({ canvasContext: ctx, viewport }).promise;
+            const renderedBase64 = canvas.toDataURL('image/jpeg', 0.95);
+            return { name: file.name, base64: renderedBase64 };
+          } catch (pdfErr) {
+            console.warn('PDF.js render fallback:', pdfErr.message);
           }
+        }
 
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const img = new Image();
-            img.onload = () => {
-              const canvas = document.createElement('canvas');
-              const maxDim = 1600;
-              let width = img.width;
-              let height = img.height;
-              if (width > maxDim || height > maxDim) {
-                if (width > height) {
-                  height = Math.round((height * maxDim) / width);
-                  width = maxDim;
-                } else {
-                  width = Math.round((width * maxDim) / height);
-                  height = maxDim;
+        if (file.type && file.type.startsWith('image/')) {
+          return new Promise((resolve) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const img = new Image();
+              img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const maxDim = 1800;
+                let width = img.width;
+                let height = img.height;
+                if (width > maxDim || height > maxDim) {
+                  if (width > height) {
+                    height = Math.round((height * maxDim) / width);
+                    width = maxDim;
+                  } else {
+                    width = Math.round((width * maxDim) / height);
+                    height = maxDim;
+                  }
                 }
-              }
-              canvas.width = width;
-              canvas.height = height;
-              const ctx = canvas.getContext('2d');
-              ctx.drawImage(img, 0, 0, width, height);
-              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85);
-              resolve({ name: file.name, base64: compressedBase64 });
+                canvas.width = width;
+                canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0, width, height);
+                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.9);
+                resolve({ name: file.name, base64: compressedBase64 });
+              };
+              img.onerror = () => resolve({ name: file.name, base64: e.target.result });
+              img.src = e.target.result;
             };
-            img.onerror = () => {
-              resolve({ name: file.name, base64: e.target.result });
-            };
-            img.src = e.target.result;
-          };
+            reader.readAsDataURL(file);
+          });
+        }
+
+        // Raw fallback
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve({ name: file.name, base64: reader.result });
           reader.readAsDataURL(file);
         });
       };
