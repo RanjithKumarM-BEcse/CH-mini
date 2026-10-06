@@ -88,21 +88,50 @@ export default function Dashboard() {
     setErrorMessage('');
 
     try {
-      // Convert files to base64
-      const filePromises = selectedFiles.map(file => {
+      // Helper to optimize image resolution/size before uploading
+      const processFile = (file) => {
         return new Promise((resolve) => {
+          if (!file.type || !file.type.startsWith('image/')) {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve({ name: file.name, base64: reader.result });
+            reader.readAsDataURL(file);
+            return;
+          }
+
           const reader = new FileReader();
-          reader.onloadend = () => {
-            resolve({
-              name: file.name,
-              base64: reader.result
-            });
+          reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              const maxDim = 1600;
+              let width = img.width;
+              let height = img.height;
+              if (width > maxDim || height > maxDim) {
+                if (width > height) {
+                  height = Math.round((height * maxDim) / width);
+                  width = maxDim;
+                } else {
+                  width = Math.round((width * maxDim) / height);
+                  height = maxDim;
+                }
+              }
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, width, height);
+              const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85);
+              resolve({ name: file.name, base64: compressedBase64 });
+            };
+            img.onerror = () => {
+              resolve({ name: file.name, base64: e.target.result });
+            };
+            img.src = e.target.result;
           };
           reader.readAsDataURL(file);
         });
-      });
+      };
 
-      const convertedFiles = await Promise.all(filePromises);
+      const convertedFiles = await Promise.all(selectedFiles.map(processFile));
 
       // Send batch to backend
       await axios.post(`${API_URL}/certificates/scan-batch`, {
