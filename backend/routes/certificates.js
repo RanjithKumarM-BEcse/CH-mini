@@ -26,15 +26,11 @@ router.get('/stats', async (req, res) => {
 // GET all certificates with optional filtering & search
 router.get('/', async (req, res) => {
   try {
-    const { q, status, folderId } = req.query;
+    const { q, status } = req.query;
     let query = {};
 
     if (status && status !== 'All') {
       query.status = status;
-    }
-
-    if (folderId) {
-      query.folderId = folderId;
     }
 
     if (q) {
@@ -42,7 +38,6 @@ router.get('/', async (req, res) => {
         { studentName: { $regex: q, $options: 'i' } },
         { courseName: { $regex: q, $options: 'i' } },
         { fileName: { $regex: q, $options: 'i' } },
-        { platform: { $regex: q, $options: 'i' } },
         { extracted_name_on_cert: { $regex: q, $options: 'i' } },
         { extracted_name_on_website: { $regex: q, $options: 'i' } }
       ];
@@ -55,17 +50,58 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST verify / add student certificate (Manual or direct file imageBase64 check)
+// POST Batch Scan (Direct file base64 uploads)
+router.post('/scan-batch', async (req, res) => {
+  try {
+    const { files } = req.body; // Array of { name, base64 }
+    if (!files || !Array.isArray(files) || files.length === 0) {
+      return res.status(400).json({ error: 'Please provide at least one certificate file to scan' });
+    }
+
+    const results = [];
+
+    for (const item of files) {
+      try {
+        const evalResult = await verifyCertificateWithAI(item.base64, item.name || 'certificate.jpg');
+
+        const cert = new Certificate({
+          studentName: evalResult.studentName || evalResult.extracted_name_on_cert || item.name.replace(/\.[^/.]+$/, ''),
+          courseName: evalResult.courseName || 'Infosys Springboard Assignment',
+          platform: 'Infosys Springboard',
+          fileName: item.name || 'certificate.jpg',
+          extracted_name_on_cert: evalResult.extracted_name_on_cert,
+          extracted_name_on_website: evalResult.extracted_name_on_website,
+          verification_url: evalResult.verification_url || '',
+          is_match: Boolean(evalResult.is_match),
+          status: evalResult.status || (evalResult.is_match ? 'Verified' : 'Suspicious'),
+          aiMatchConfidence: evalResult.aiMatchConfidence || '95%',
+          reason: evalResult.reason,
+          uploadDate: new Date()
+        });
+
+        await cert.save();
+        results.push(cert);
+      } catch (fileErr) {
+        console.error('Error scanning file:', item.name, fileErr.message);
+      }
+    }
+
+    res.json(results);
+  } catch (err) {
+    res.status(500).json({ error: 'Batch scan failed', details: err.message });
+  }
+});
+
+// POST single certificate
 router.post('/', async (req, res) => {
   try {
     const { 
-      studentName, courseName, fileName, folderId, folderName, 
-      status, reason, aiMatchConfidence, platform, imageBase64 
+      studentName, courseName, fileName, 
+      status, reason, aiMatchConfidence, imageBase64 
     } = req.body;
 
     let evalResult = null;
     if (imageBase64) {
-      // Runs the exact QR/URL extraction -> Webpage scraping -> Name cross-check
       evalResult = await verifyCertificateWithAI(imageBase64, fileName || 'cert.jpg');
     }
 
@@ -76,12 +112,8 @@ router.post('/', async (req, res) => {
     const cert = new Certificate({
       studentName: finalStudentName,
       courseName: evalResult?.courseName || courseName || 'Infosys Springboard Assignment',
-      platform: platform || 'Infosys Springboard',
+      platform: 'Infosys Springboard',
       fileName: fileName || `${finalStudentName.replace(/\s+/g, '_')}_Certificate.pdf`,
-      folderId: folderId || 'General',
-      folderName: folderName || 'Connected Drive',
-      
-      // Core Name Matching Results
       extracted_name_on_cert: evalResult?.extracted_name_on_cert || finalStudentName,
       extracted_name_on_website: evalResult?.extracted_name_on_website || (isMatch ? finalStudentName : 'Unknown'),
       verification_url: evalResult?.verification_url || '',
@@ -95,25 +127,23 @@ router.post('/', async (req, res) => {
     });
 
     await cert.save();
-
-    // Update folder counts
-    if (folderName && folderName !== 'General') {
-      const folder = await Folder.findOne({ name: folderName });
-      if (folder) {
-        if (cert.status === 'Verified') folder.verifiedCount += 1;
-        if (cert.status === 'Suspicious') folder.suspiciousCount += 1;
-        folder.lastSync = new Date();
-        await folder.save();
-      }
-    }
-
     res.status(201).json(cert);
   } catch (err) {
     res.status(500).json({ error: 'Failed to create certificate', details: err.message });
   }
 });
 
-// DELETE a certificate
+// DELETE all certificates (Reset batch)
+router.delete('/clear-all', async (req, res) => {
+  try {
+    await Certificate.deleteMany({});
+    res.json({ message: 'All certificate records cleared' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to clear certificates' });
+  }
+});
+
+// DELETE single certificate
 router.delete('/:id', async (req, res) => {
   try {
     await Certificate.findByIdAndDelete(req.params.id);
