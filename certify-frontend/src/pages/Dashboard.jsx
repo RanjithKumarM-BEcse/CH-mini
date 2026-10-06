@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  ShieldAlert, ShieldCheck, FolderSync, FileText, Download, 
-  Plus, Trash2, RefreshCw, X, AlertTriangle, ExternalLink,
-  UploadCloud, CheckCircle2, Eye
+  ShieldAlert, FolderSync, FileText, Download, 
+  Trash2, RefreshCw, X, AlertTriangle, ExternalLink,
+  UploadCloud, CheckCircle2, Eye, QrCode, ArrowRightLeft
 } from 'lucide-react';
 import axios from 'axios';
 import DashboardLayout from '../layouts/DashboardLayout';
@@ -32,7 +32,6 @@ export default function Dashboard() {
   const [uploadForm, setUploadForm] = useState({
     studentName: '',
     courseName: 'Infosys Springboard Assignment',
-    platform: 'Infosys Springboard',
     folderName: '',
     status: 'Verified',
     imageBase64: '',
@@ -116,7 +115,7 @@ export default function Dashboard() {
 
   // Handle Delete Folder
   const handleDeleteFolder = async (id) => {
-    if (!window.confirm('Disconnect this Google Drive folder and remove scanned records?')) return;
+    if (!window.confirm('Disconnect this Google Drive folder and remove its certificate records?')) return;
     try {
       await axios.delete(`${API_URL}/folders/${id}`);
       fetchData();
@@ -150,7 +149,6 @@ export default function Dashboard() {
       setUploadForm({
         studentName: '',
         courseName: 'Infosys Springboard Assignment',
-        platform: 'Infosys Springboard',
         folderName: '',
         status: 'Verified',
         imageBase64: '',
@@ -183,14 +181,24 @@ export default function Dashboard() {
       return;
     }
 
-    const headers = ['Student Name', 'Course Title', 'Platform', 'Verdict', 'Confidence', 'Tampering Indicators', 'Staff Notes / Reason', 'Scan Date'];
+    const headers = [
+      'Name on Certificate', 
+      'Name on Official Website', 
+      'Names Match', 
+      'Verdict', 
+      'Verification URL', 
+      'Course', 
+      'Reason', 
+      'Date'
+    ];
+
     const rows = filteredCertificates.map(c => [
-      `"${c.studentName || ''}"`,
-      `"${c.courseName || ''}"`,
-      `"${c.platform || 'Infosys Springboard'}"`,
+      `"${c.extracted_name_on_cert || c.studentName || ''}"`,
+      `"${c.extracted_name_on_website || 'Not Found'}"`,
+      `"${c.is_match ? 'YES' : 'NO'}"`,
       `"${c.status === 'Verified' ? 'GENUINE' : 'FAKE / SUSPICIOUS'}"`,
-      `"${c.aiMatchConfidence || ''}"`,
-      `"${(c.fraudIndicators || []).join('; ').replace(/"/g, '""')}"`,
+      `"${c.verification_url || ''}"`,
+      `"${c.courseName || ''}"`,
       `"${(c.reason || '').replace(/"/g, '""')}"`,
       `"${new Date(c.uploadDate || Date.now()).toLocaleDateString()}"`
     ]);
@@ -199,7 +207,7 @@ export default function Dashboard() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Staff_Grading_Report_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `Staff_QR_Verification_Report_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -211,9 +219,10 @@ export default function Dashboard() {
     const query = searchTerm.toLowerCase();
     const matchesSearch = 
       (cert.studentName && cert.studentName.toLowerCase().includes(query)) ||
+      (cert.extracted_name_on_cert && cert.extracted_name_on_cert.toLowerCase().includes(query)) ||
+      (cert.extracted_name_on_website && cert.extracted_name_on_website.toLowerCase().includes(query)) ||
       (cert.courseName && cert.courseName.toLowerCase().includes(query)) ||
-      (cert.fileName && cert.fileName.toLowerCase().includes(query)) ||
-      (cert.platform && cert.platform.toLowerCase().includes(query));
+      (cert.fileName && cert.fileName.toLowerCase().includes(query));
     return matchesStatus && matchesSearch;
   });
 
@@ -221,15 +230,17 @@ export default function Dashboard() {
     <DashboardLayout searchTerm={searchTerm} setSearchTerm={setSearchTerm}>
       <div className="max-w-7xl mx-auto space-y-8 font-sans">
         
-        {/* Header tailored for Staff */}
+        {/* Header specifically explaining the QR / Link matching logic */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-slate-200/80 shadow-xs">
           <div>
-            <div className="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold mb-2">
-              <ShieldCheck className="w-3.5 h-3.5" /> Academic Assignment Verification
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold mb-2">
+              <QrCode className="w-3.5 h-3.5" /> QR Code & Webpage Name Cross-Check Engine
             </div>
-            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Staff Certificate Fraud Scanner</h1>
-            <p className="text-sm text-slate-500 mt-1 max-w-2xl">
-              Automatically inspect student certificate submissions (Infosys Springboard, Coursera, NPTEL) from Google Drive to detect forged or photoshopped names.
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
+              Certificate Authenticity Verification
+            </h1>
+            <p className="text-sm text-slate-500 mt-1 max-w-2xl leading-relaxed">
+              Extracts the QR code or link from student certificate submissions (Infosys Springboard), scrapes the official verification webpage, and matches the name on the certificate with the name on the official website to catch fakes.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -255,53 +266,53 @@ export default function Dashboard() {
           <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">Monitored Folders</p>
+                <p className="text-sm font-medium text-slate-500">Connected Folders</p>
                 <h3 className="text-3xl font-extrabold text-slate-900 mt-2 tracking-tight">{stats.totalFolders}</h3>
               </div>
               <div className="p-3 rounded-xl bg-blue-50 text-blue-600">
                 <FolderSync className="w-6 h-6" />
               </div>
             </div>
-            <p className="text-xs text-slate-400 mt-3 font-medium">Assignment submission drives</p>
+            <p className="text-xs text-slate-400 mt-3 font-medium">Google Drive repositories</p>
           </div>
 
           <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">Total Scanned</p>
+                <p className="text-sm font-medium text-slate-500">Total Inspected</p>
                 <h3 className="text-3xl font-extrabold text-slate-900 mt-2 tracking-tight">{stats.totalScanned}</h3>
               </div>
               <div className="p-3 rounded-xl bg-slate-100 text-slate-700">
                 <FileText className="w-6 h-6" />
               </div>
             </div>
-            <p className="text-xs text-slate-400 mt-3 font-medium">Total student certificates inspected</p>
+            <p className="text-xs text-slate-400 mt-3 font-medium">Certificates cross-checked</p>
           </div>
 
           <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">Genuine / True</p>
+                <p className="text-sm font-medium text-slate-500">Names Matched (Genuine)</p>
                 <h3 className="text-3xl font-extrabold text-emerald-600 mt-2 tracking-tight">{stats.verified}</h3>
               </div>
               <div className="p-3 rounded-xl bg-emerald-50 text-emerald-600">
                 <CheckCircle2 className="w-6 h-6" />
               </div>
             </div>
-            <p className="text-xs text-slate-400 mt-3 font-medium">Authentic formatting & records</p>
+            <p className="text-xs text-slate-400 mt-3 font-medium text-emerald-600 font-semibold">Certificate name = Website name</p>
           </div>
 
           <div className="bg-white rounded-2xl p-6 border border-slate-200/80 shadow-xs">
             <div className="flex items-start justify-between">
               <div>
-                <p className="text-sm font-medium text-slate-500">Fakes / Altered</p>
+                <p className="text-sm font-medium text-slate-500">Mismatches / Fakes</p>
                 <h3 className="text-3xl font-extrabold text-red-600 mt-2 tracking-tight">{stats.suspicious}</h3>
               </div>
               <div className="p-3 rounded-xl bg-red-50 text-red-600">
                 <ShieldAlert className="w-6 h-6" />
               </div>
             </div>
-            <p className="text-xs text-slate-400 mt-3 font-medium font-semibold text-red-600">Tampered names / forged IDs</p>
+            <p className="text-xs text-slate-400 mt-3 font-semibold text-red-600">Name altered or link invalid</p>
           </div>
         </div>
 
@@ -313,23 +324,23 @@ export default function Dashboard() {
             <div className="p-6 border-b border-slate-100 flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-semibold text-slate-900">Assignment Drive Folders</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Google Drive assignment links</p>
+                <p className="text-xs text-slate-400 mt-0.5">Auto-scanned student submissions</p>
               </div>
               <button 
                 onClick={() => setShowFolderModal(true)}
                 className="text-brand-600 hover:text-brand-700 text-sm font-medium flex items-center gap-1 hover:underline"
               >
-                <Plus className="w-4 h-4" /> Add Folder
+                + Add Folder
               </button>
             </div>
 
-            <div className="p-4 flex-1 flex flex-col gap-3 overflow-y-auto max-h-[500px]">
+            <div className="p-4 flex-1 flex flex-col gap-3 overflow-y-auto max-h-[520px]">
               {folders.length === 0 ? (
                 <div className="py-12 px-4 text-center border-2 border-dashed border-slate-200 rounded-xl my-auto">
                   <FolderSync className="w-10 h-10 text-slate-300 mx-auto mb-3" />
-                  <p className="text-sm font-semibold text-slate-700">No Drive Folders Connected</p>
+                  <p className="text-sm font-semibold text-slate-700">No Folders Connected</p>
                   <p className="text-xs text-slate-400 mt-1 max-w-[220px] mx-auto">
-                    Paste your students' assignment Google Drive folder link to scan for fakes.
+                    Paste your students' Google Drive assignment link to extract and verify their certificates.
                   </p>
                   <button 
                     onClick={() => setShowFolderModal(true)}
@@ -362,10 +373,10 @@ export default function Dashboard() {
 
                     <div className="flex items-center justify-between text-xs text-slate-500 mt-3 pt-2.5 border-t border-slate-100">
                       <div className="flex items-center gap-3">
-                        <span className="flex items-center gap-1 text-emerald-600 font-semibold" title="Genuine certificates">
+                        <span className="flex items-center gap-1 text-emerald-600 font-semibold" title="Names Matched">
                           <CheckCircle2 className="w-3.5 h-3.5"/> {folder.verifiedCount || 0} True
                         </span>
-                        <span className="flex items-center gap-1 text-red-600 font-semibold" title="Fake certificates">
+                        <span className="flex items-center gap-1 text-red-600 font-semibold" title="Names Mismatched">
                           <AlertTriangle className="w-3.5 h-3.5"/> {folder.suspiciousCount || 0} Fake
                         </span>
                       </div>
@@ -393,12 +404,12 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Certificates Data Table with Fraud Indicators */}
+          {/* Certificates Data Table with Name on Cert vs Name on Website */}
           <div className="xl:col-span-2 bg-white rounded-2xl border border-slate-200/80 shadow-xs flex flex-col overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-lg font-semibold text-slate-900">Student Assignment Inspections</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Automated authenticity evaluation</p>
+                <h2 className="text-lg font-semibold text-slate-900">Name Matching & QR Verification Results</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Comparison between certificate text and official verification URL</p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 {/* Filter Tabs */}
@@ -414,7 +425,7 @@ export default function Dashboard() {
                           : "hover:text-slate-900"
                       )}
                     >
-                      {status === 'Verified' ? 'True / Genuine' : status === 'Suspicious' ? 'Fake / Suspicious' : 'All'}
+                      {status === 'Verified' ? 'True (Matched)' : status === 'Suspicious' ? 'Fake (Mismatched)' : 'All'}
                     </button>
                   ))}
                 </div>
@@ -423,7 +434,7 @@ export default function Dashboard() {
                   onClick={handleExportCSV}
                   className="text-slate-700 hover:text-slate-900 text-xs font-semibold flex items-center gap-1.5 border border-slate-200 px-3 py-2 rounded-xl hover:bg-slate-50 transition-colors shadow-xs"
                 >
-                  <Download className="w-3.5 h-3.5" /> Staff Grading Sheet (.csv)
+                  <Download className="w-3.5 h-3.5" /> Export Grading Report (.csv)
                 </button>
               </div>
             </div>
@@ -432,10 +443,10 @@ export default function Dashboard() {
               {filteredCertificates.length === 0 ? (
                 <div className="py-16 text-center">
                   <FileText className="w-12 h-12 text-slate-200 mx-auto mb-3" />
-                  <p className="text-base font-semibold text-slate-700">No certificates inspected yet</p>
+                  <p className="text-base font-semibold text-slate-700">No certificates cross-checked yet</p>
                   <p className="text-xs text-slate-400 mt-1 max-w-sm mx-auto">
                     {certificates.length === 0 
-                      ? "Import a student Google Drive folder or scan a certificate image to inspect Infosys Springboard submissions for fake names." 
+                      ? "Import a student Google Drive folder or scan a certificate image to extract QR links and verify student names." 
                       : "No certificates match your search query."}
                   </p>
                   {certificates.length === 0 && (
@@ -443,7 +454,7 @@ export default function Dashboard() {
                       onClick={() => setShowUploadModal(true)}
                       className="mt-4 px-4 py-2 bg-brand-600 text-white text-xs font-semibold rounded-xl hover:bg-brand-700 transition-colors shadow-xs"
                     >
-                      Inspect First Certificate
+                      Test First Certificate
                     </button>
                   )}
                 </div>
@@ -451,102 +462,113 @@ export default function Dashboard() {
                 <table className="w-full text-left text-sm whitespace-nowrap">
                   <thead className="bg-slate-50/80 text-slate-500 font-semibold text-xs border-b border-slate-100 uppercase tracking-wider">
                     <tr>
-                      <th className="px-6 py-3.5">Student / File</th>
-                      <th className="px-6 py-3.5">Course / Platform</th>
-                      <th className="px-6 py-3.5">Verdict</th>
-                      <th className="px-6 py-3.5">Authenticity Analysis</th>
-                      <th className="px-6 py-3.5 text-right">Actions</th>
+                      <th className="px-5 py-3.5">Name on Certificate</th>
+                      <th className="px-5 py-3.5">Name on Official Website</th>
+                      <th className="px-5 py-3.5">Verdict</th>
+                      <th className="px-5 py-3.5">Verification URL</th>
+                      <th className="px-5 py-3.5 text-right">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-600">
-                    {filteredCertificates.map(cert => (
-                      <tr key={cert._id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="px-6 py-4">
-                          <div className="font-semibold text-slate-900">
-                            {cert.studentName}
-                          </div>
-                          <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5">
-                            <span>{cert.fileName}</span>
-                            {cert.driveLink && (
-                              <a 
-                                href={cert.driveLink} 
-                                target="_blank" 
-                                rel="noreferrer" 
-                                className="text-brand-600 hover:text-brand-700" 
-                                title="Open Drive File"
-                              >
-                                <ExternalLink className="w-3 h-3" />
-                              </a>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="font-medium text-slate-800">{cert.courseName}</div>
-                          <div className="text-xs text-slate-400 mt-0.5">
-                            <span className="font-medium text-blue-600">{cert.platform || 'Infosys Springboard'}</span> • ID: {cert.certificateId || 'SPB-Verified'}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className={cn(
-                            "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border",
-                            cert.status === 'Verified' 
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
-                              : "bg-red-50 text-red-700 border-red-200"
-                          )}>
-                            {cert.status === 'Verified' ? (
-                              <>
-                                <CheckCircle2 className="w-3.5 h-3.5" />
-                                TRUE / GENUINE
-                              </>
-                            ) : (
-                              <>
-                                <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
-                                FAKE / ALTERED
-                              </>
-                            )}
-                          </span>
-                          <span className="block text-xs text-slate-400 font-medium mt-1">
-                            Confidence: {cert.aiMatchConfidence || '95%'}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 max-w-xs truncate text-xs">
-                          <div className="text-slate-700 font-medium truncate" title={cert.reason}>
-                            {cert.reason}
-                          </div>
-                          {cert.fraudIndicators && cert.fraudIndicators.length > 0 && (
-                            <div className="flex items-center gap-1 mt-1 text-red-600 text-xs font-semibold">
-                              <AlertTriangle className="w-3 h-3 shrink-0" />
-                              <span className="truncate">{cert.fraudIndicators[0]}</span>
+                    {filteredCertificates.map(cert => {
+                      const nameOnCert = cert.extracted_name_on_cert || cert.studentName;
+                      const nameOnWeb = cert.extracted_name_on_website || (cert.status === 'Verified' ? nameOnCert : 'Unknown / Different Student');
+                      const isMatch = cert.is_match ?? (cert.status === 'Verified');
+
+                      return (
+                        <tr key={cert._id} className="hover:bg-slate-50/80 transition-colors">
+                          {/* Name on Certificate */}
+                          <td className="px-5 py-4">
+                            <div className="font-semibold text-slate-900">
+                              {nameOnCert}
                             </div>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-1">
-                            <button
-                              onClick={() => setSelectedCert(cert)}
-                              className="text-slate-400 hover:text-slate-700 transition-colors p-1.5 rounded-lg hover:bg-slate-100"
-                              title="View Forensic Details"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteCertificate(cert._id)}
-                              className="text-slate-400 hover:text-red-600 transition-colors p-1.5 rounded-lg hover:bg-red-50"
-                              title="Delete record"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                            <div className="text-xs text-slate-400 mt-0.5 truncate max-w-[160px]">
+                              {cert.fileName}
+                            </div>
+                          </td>
+
+                          {/* Name on Official Website */}
+                          <td className="px-5 py-4">
+                            <div className={cn(
+                              "font-semibold text-xs px-2.5 py-1 rounded-lg inline-block",
+                              isMatch ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800 font-bold"
+                            )}>
+                              {nameOnWeb}
+                            </div>
+                            <div className="text-xs text-slate-400 mt-0.5">
+                              Course: {cert.courseName}
+                            </div>
+                          </td>
+
+                          {/* Verdict */}
+                          <td className="px-5 py-4">
+                            <span className={cn(
+                              "inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border",
+                              isMatch
+                                ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
+                                : "bg-red-50 text-red-700 border-red-200"
+                            )}>
+                              {isMatch ? (
+                                <>
+                                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                                  TRUE (MATCHED)
+                                </>
+                              ) : (
+                                <>
+                                  <ShieldAlert className="w-3.5 h-3.5 text-red-600" />
+                                  FAKE (MISMATCH)
+                                </>
+                              )}
+                            </span>
+                          </td>
+
+                          {/* Verification URL / QR Link */}
+                          <td className="px-5 py-4">
+                            {cert.verification_url ? (
+                              <a
+                                href={cert.verification_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-mono hover:underline truncate max-w-[200px]"
+                                title={cert.verification_url}
+                              >
+                                <ExternalLink className="w-3 h-3 shrink-0" />
+                                <span className="truncate">{cert.verification_url}</span>
+                              </a>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">No QR/Link detected</span>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-5 py-4 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                onClick={() => setSelectedCert(cert)}
+                                className="text-slate-400 hover:text-slate-700 transition-colors p-1.5 rounded-lg hover:bg-slate-100"
+                                title="View Side-by-Side Comparison"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteCertificate(cert._id)}
+                                className="text-slate-400 hover:text-red-600 transition-colors p-1.5 rounded-lg hover:bg-red-50"
+                                title="Delete record"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
             </div>
             
             <div className="p-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-400 bg-slate-50/40">
-              <span>Showing {filteredCertificates.length} of {certificates.length} certificate submissions</span>
+              <span>Showing {filteredCertificates.length} of {certificates.length} verified submissions</span>
               <button 
                 onClick={fetchData} 
                 className="text-brand-600 hover:text-brand-700 font-semibold flex items-center gap-1 hover:underline"
@@ -605,7 +627,7 @@ export default function Dashboard() {
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 font-mono text-xs"
                 />
                 <p className="text-xs text-slate-400 mt-1.5 leading-relaxed">
-                  Paste the Google Drive folder link where your students uploaded their certificate files. CertifyHub will scan each submission and cross-check authenticity.
+                  Paste the Google Drive folder link where students uploaded their certificates. CertifyHub will decode the QR/verification link from each certificate, visit the official page, and check if the student name matches.
                 </p>
               </div>
 
@@ -630,16 +652,16 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* MODAL 2: Scan / Test Certificate File */}
+      {/* MODAL 2: Test / Scan Certificate Image */}
       {showUploadModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-                  <ShieldCheck className="w-4 h-4" />
+                  <QrCode className="w-4 h-4" />
                 </div>
-                <h3 className="text-base font-bold text-slate-900">Inspect Student Certificate</h3>
+                <h3 className="text-base font-bold text-slate-900">Scan Certificate with QR / Link Extraction</h3>
               </div>
               <button 
                 onClick={() => setShowUploadModal(false)}
@@ -652,7 +674,7 @@ export default function Dashboard() {
             <form onSubmit={handleVerifyUpload} className="mt-4 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Upload Certificate Image (Optional for AI Vision Check)
+                  Upload Certificate Image (AI will decode QR & match names)
                 </label>
                 <input 
                   type="file" 
@@ -662,36 +684,17 @@ export default function Dashboard() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Student Name
-                  </label>
-                  <input 
-                    type="text" 
-                    required
-                    placeholder="e.g. John Doe"
-                    value={uploadForm.studentName}
-                    onChange={(e) => setUploadForm({ ...uploadForm, studentName: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-brand-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Platform
-                  </label>
-                  <select
-                    value={uploadForm.platform}
-                    onChange={(e) => setUploadForm({ ...uploadForm, platform: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand-500"
-                  >
-                    <option value="Infosys Springboard">Infosys Springboard</option>
-                    <option value="Coursera">Coursera</option>
-                    <option value="NPTEL">NPTEL</option>
-                    <option value="HackerRank">HackerRank</option>
-                    <option value="Other">Other Platform</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
+                  Student Name (Optional if uploading image)
+                </label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. Ranjith Kumar M"
+                  value={uploadForm.studentName}
+                  onChange={(e) => setUploadForm({ ...uploadForm, studentName: e.target.value })}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-brand-500"
+                />
               </div>
 
               <div>
@@ -701,7 +704,7 @@ export default function Dashboard() {
                 <input 
                   type="text" 
                   required
-                  placeholder="e.g. Python Programming & Data Structures"
+                  placeholder="e.g. Infosys Springboard - Python Foundation"
                   value={uploadForm.courseName}
                   onChange={(e) => setUploadForm({ ...uploadForm, courseName: e.target.value })}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:border-brand-500"
@@ -726,15 +729,15 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5">
-                    Simulate Verdict
+                    Simulate If No File
                   </label>
                   <select
                     value={uploadForm.status}
                     onChange={(e) => setUploadForm({ ...uploadForm, status: e.target.value })}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm bg-white focus:outline-none focus:border-brand-500"
                   >
-                    <option value="Verified">Genuine (Verified)</option>
-                    <option value="Suspicious">Fake / Altered (Suspicious)</option>
+                    <option value="Verified">Genuine (Name Matches)</option>
+                    <option value="Suspicious">Fake (Name Mismatch)</option>
                   </select>
                 </div>
               </div>
@@ -752,7 +755,7 @@ export default function Dashboard() {
                   disabled={submitting}
                   className="px-4 py-2.5 bg-brand-600 text-white rounded-xl text-sm font-semibold hover:bg-brand-700 transition-colors disabled:opacity-50"
                 >
-                  {submitting ? 'Inspecting...' : 'Run Forensic Inspection'}
+                  {submitting ? 'Verifying...' : 'Run QR & Name Cross-Check'}
                 </button>
               </div>
             </form>
@@ -760,7 +763,7 @@ export default function Dashboard() {
         </div>
       )}
 
-      {/* MODAL 3: Detailed Forensic Inspection View */}
+      {/* MODAL 3: Side-by-Side Name Comparison Modal */}
       {selectedCert && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-6 border border-slate-100 animate-in fade-in zoom-in-95 duration-150">
@@ -768,13 +771,13 @@ export default function Dashboard() {
               <div className="flex items-center gap-2">
                 <div className={cn(
                   "w-8 h-8 rounded-lg flex items-center justify-center",
-                  selectedCert.status === 'Verified' ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
+                  (selectedCert.is_match ?? selectedCert.status === 'Verified') ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600"
                 )}>
-                  {selectedCert.status === 'Verified' ? <CheckCircle2 className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
+                  {(selectedCert.is_match ?? selectedCert.status === 'Verified') ? <CheckCircle2 className="w-5 h-5" /> : <ShieldAlert className="w-5 h-5" />}
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Forensic Inspection Report</h3>
-                  <p className="text-xs text-slate-400">Assignment Certificate Evaluation</p>
+                  <h3 className="text-base font-bold text-slate-900">Name Cross-Check Evaluation</h3>
+                  <p className="text-xs text-slate-400">QR Code & Official Registry Comparison</p>
                 </div>
               </div>
               <button 
@@ -786,77 +789,80 @@ export default function Dashboard() {
             </div>
 
             <div className="mt-4 space-y-4 text-sm">
-              <div className="bg-slate-50 p-4 rounded-xl space-y-2 border border-slate-100">
-                <div className="flex justify-between">
-                  <span className="text-slate-500 text-xs">Student Name:</span>
-                  <span className="font-bold text-slate-900">{selectedCert.studentName}</span>
+              {/* Side-by-Side Name Comparison Box */}
+              <div className="p-4 rounded-xl border bg-slate-50 space-y-3">
+                <div className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                  <ArrowRightLeft className="w-3.5 h-3.5" /> Side-by-Side Name Verification
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 text-xs">Platform:</span>
-                  <span className="font-semibold text-blue-600">{selectedCert.platform || 'Infosys Springboard'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 text-xs">Course Title:</span>
-                  <span className="font-medium text-slate-800">{selectedCert.courseName}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 text-xs">Certificate ID:</span>
-                  <span className="font-mono text-xs text-slate-700">{selectedCert.certificateId || 'SPB-Verified'}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500 text-xs">AI Confidence:</span>
-                  <span className="font-semibold text-slate-900">{selectedCert.aiMatchConfidence || '95%'}</span>
-                </div>
-              </div>
 
-              <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Authenticity Verdict
-                </h4>
+                <div className="grid grid-cols-2 gap-3 text-center">
+                  <div className="p-3 bg-white rounded-lg border border-slate-200">
+                    <span className="text-[11px] font-semibold text-slate-400 block mb-1 uppercase tracking-wider">
+                      Name on Certificate
+                    </span>
+                    <span className="font-bold text-slate-900 text-sm block">
+                      {selectedCert.extracted_name_on_cert || selectedCert.studentName}
+                    </span>
+                  </div>
+
+                  <div className={cn(
+                    "p-3 rounded-lg border",
+                    (selectedCert.is_match ?? selectedCert.status === 'Verified')
+                      ? "bg-emerald-50/70 border-emerald-200 text-emerald-900"
+                      : "bg-red-50/70 border-red-200 text-red-900"
+                  )}>
+                    <span className="text-[11px] font-semibold text-slate-400 block mb-1 uppercase tracking-wider">
+                      Name on Official Website
+                    </span>
+                    <span className="font-bold text-sm block">
+                      {selectedCert.extracted_name_on_website || (selectedCert.status === 'Verified' ? selectedCert.studentName : 'Different Person')}
+                    </span>
+                  </div>
+                </div>
+
                 <div className={cn(
-                  "p-3 rounded-xl border text-xs font-semibold flex items-center gap-2",
-                  selectedCert.status === 'Verified' 
-                    ? "bg-emerald-50 text-emerald-800 border-emerald-200" 
-                    : "bg-red-50 text-red-800 border-red-200"
+                  "p-2.5 rounded-lg text-center text-xs font-bold border",
+                  (selectedCert.is_match ?? selectedCert.status === 'Verified')
+                    ? "bg-emerald-100/50 text-emerald-800 border-emerald-300"
+                    : "bg-red-100/50 text-red-800 border-red-300"
                 )}>
-                  {selectedCert.status === 'Verified' ? (
-                    <>
-                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-                      <span>GENUINE CERTIFICATE: Official formatting, signatures, and ID confirmed.</span>
-                    </>
-                  ) : (
-                    <>
-                      <AlertTriangle className="w-4 h-4 text-red-600 shrink-0" />
-                      <span>FLAGGED AS FAKE / ALTERED: Font inconsistencies or text overlay detected.</span>
-                    </>
-                  )}
+                  {(selectedCert.is_match ?? selectedCert.status === 'Verified')
+                    ? "MATCH CONFIRMED: Student is the genuine certificate recipient."
+                    : "MISMATCH DETECTED: Student name does not match the verification registry."}
                 </div>
               </div>
 
+              {/* QR / Verification URL */}
               <div>
-                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Detailed Reason & Evidence
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  Extracted Verification URL / QR Code
                 </h4>
-                <p className="text-xs text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed">
+                {selectedCert.verification_url ? (
+                  <a
+                    href={selectedCert.verification_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl border border-slate-200 text-xs text-brand-600 font-mono transition-colors"
+                  >
+                    <span className="truncate max-w-[360px]">{selectedCert.verification_url}</span>
+                    <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                  </a>
+                ) : (
+                  <p className="text-xs text-slate-400 italic bg-slate-50 p-2.5 rounded-xl border border-slate-100">
+                    No QR code or verification link could be extracted from this certificate.
+                  </p>
+                )}
+              </div>
+
+              {/* Detailed Reason */}
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">
+                  AI Decision Summary
+                </h4>
+                <p className="text-xs text-slate-700 bg-slate-50 p-3 rounded-xl border border-slate-100 leading-relaxed">
                   {selectedCert.reason}
                 </p>
               </div>
-
-              {selectedCert.fraudIndicators && selectedCert.fraudIndicators.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-red-600 mb-1.5">
-                    Specific Tampering Indicators
-                  </h4>
-                  <ul className="space-y-1">
-                    {selectedCert.fraudIndicators.map((ind, i) => (
-                      <li key={i} className="text-xs text-red-700 bg-red-50/60 px-3 py-1.5 rounded-lg border border-red-100 flex items-center gap-2">
-                        <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
-                        {ind}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
             </div>
 
             <div className="mt-6 flex justify-end pt-3 border-t border-slate-100">

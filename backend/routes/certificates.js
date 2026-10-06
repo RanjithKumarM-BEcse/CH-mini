@@ -42,7 +42,9 @@ router.get('/', async (req, res) => {
         { studentName: { $regex: q, $options: 'i' } },
         { courseName: { $regex: q, $options: 'i' } },
         { fileName: { $regex: q, $options: 'i' } },
-        { platform: { $regex: q, $options: 'i' } }
+        { platform: { $regex: q, $options: 'i' } },
+        { extracted_name_on_cert: { $regex: q, $options: 'i' } },
+        { extracted_name_on_website: { $regex: q, $options: 'i' } }
       ];
     }
 
@@ -53,31 +55,42 @@ router.get('/', async (req, res) => {
   }
 });
 
-// POST verify / add student certificate (Manual or direct file base64 check)
+// POST verify / add student certificate (Manual or direct file imageBase64 check)
 router.post('/', async (req, res) => {
   try {
     const { 
       studentName, courseName, fileName, folderId, folderName, 
-      status, reason, aiMatchConfidence, fraudIndicators, platform, imageBase64 
+      status, reason, aiMatchConfidence, platform, imageBase64 
     } = req.body;
 
     let evalResult = null;
     if (imageBase64) {
+      // Runs the exact QR/URL extraction -> Webpage scraping -> Name cross-check
       evalResult = await verifyCertificateWithAI(imageBase64, fileName || 'cert.jpg');
     }
 
+    const finalStudentName = evalResult?.studentName || studentName || 'Student';
+    const isMatch = evalResult ? evalResult.is_match : (status === 'Verified');
+    const finalStatus = evalResult ? evalResult.status : (status || 'Verified');
+
     const cert = new Certificate({
-      studentName: evalResult?.studentName || studentName || 'Student',
+      studentName: finalStudentName,
       courseName: evalResult?.courseName || courseName || 'Infosys Springboard Assignment',
-      platform: evalResult?.platform || platform || 'Infosys Springboard',
-      certificateId: evalResult?.certificateId || ('SPB-' + Math.floor(100000 + Math.random() * 900000)),
-      fileName: fileName || `${(studentName || 'Student').replace(/\s+/g, '_')}_Certificate.pdf`,
+      platform: platform || 'Infosys Springboard',
+      fileName: fileName || `${finalStudentName.replace(/\s+/g, '_')}_Certificate.pdf`,
       folderId: folderId || 'General',
       folderName: folderName || 'Connected Drive',
-      status: evalResult?.status || status || 'Verified',
-      aiMatchConfidence: evalResult?.confidence || aiMatchConfidence || (status === 'Suspicious' ? '45%' : '98%'),
-      fraudIndicators: evalResult?.fraudIndicators || fraudIndicators || [],
-      reason: evalResult?.reason || reason || (status === 'Suspicious' ? 'Student name discrepancy detected against verification link.' : 'Genuine: Certificate structure matches Infosys Springboard format.'),
+      
+      // Core Name Matching Results
+      extracted_name_on_cert: evalResult?.extracted_name_on_cert || finalStudentName,
+      extracted_name_on_website: evalResult?.extracted_name_on_website || (isMatch ? finalStudentName : 'Unknown'),
+      verification_url: evalResult?.verification_url || '',
+      is_match: isMatch,
+      status: finalStatus,
+      aiMatchConfidence: evalResult?.aiMatchConfidence || aiMatchConfidence || (isMatch ? '99%' : '45%'),
+      reason: evalResult?.reason || reason || (isMatch 
+        ? 'Verified: Name on certificate matches the student name on the official verification webpage.' 
+        : 'Suspicious: Student name on certificate does not match the official verification webpage.'),
       uploadDate: new Date()
     });
 

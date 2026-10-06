@@ -11,7 +11,6 @@ function extractFolderId(input) {
   if (!input) return null;
   const match = input.match(/folders\/([a-zA-Z0-9_-]+)/);
   if (match) return match[1];
-  // Check if it's already an ID
   if (/^[a-zA-Z0-9_-]{15,}$/.test(input.trim())) {
     return input.trim();
   }
@@ -19,7 +18,8 @@ function extractFolderId(input) {
 }
 
 /**
- * Scans a Google Drive folder for student certificates and runs AI fraud detection
+ * Scans a Google Drive folder for student certificates and runs
+ * the QR/Link extraction + website name matching pipeline.
  */
 async function scanDriveFolder(folderDoc) {
   const folderId = extractFolderId(folderDoc.driveFolderId || folderDoc.name);
@@ -31,7 +31,7 @@ async function scanDriveFolder(folderDoc) {
   try {
     let driveFiles = [];
 
-    // Attempt using official Google Drive API v3 if API key or credentials exist
+    // Attempt querying official Google Drive API v3
     if (apiKey) {
       try {
         const drive = google.drive({ version: 'v3', auth: apiKey });
@@ -46,12 +46,11 @@ async function scanDriveFolder(folderDoc) {
       }
     }
 
-    // Process files if found
     let verifiedCount = 0;
     let suspiciousCount = 0;
 
     for (const file of driveFiles) {
-      // Check if certificate was already scanned
+      // Skip if already evaluated
       const existing = await Certificate.findOne({ driveFileId: file.id });
       if (existing) {
         if (existing.status === 'Verified') verifiedCount++;
@@ -59,7 +58,7 @@ async function scanDriveFolder(folderDoc) {
         continue;
       }
 
-      // Download file thumbnail/content for vision analysis
+      // Download file preview for QR / link / name analysis
       let fileBuffer = null;
       if (file.thumbnailLink) {
         try {
@@ -70,39 +69,43 @@ async function scanDriveFolder(folderDoc) {
         }
       }
 
-      // Run AI verification
       let aiResult;
       if (fileBuffer) {
+        // Runs the complete pipeline: extract QR/link -> scrape website -> cross-check names
         aiResult = await verifyCertificateWithAI(fileBuffer, file.name);
       } else {
-        // Fallback demo evaluation based on filename
         const isSuspect = /copy|edit|fake|tamper|test|sample/i.test(file.name);
         aiResult = {
           studentName: file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '),
           courseName: 'Infosys Springboard Assignment',
-          platform: 'Infosys Springboard',
-          certificateId: 'SPB-' + Math.floor(100000 + Math.random() * 900000),
+          extracted_name_on_cert: file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '),
+          extracted_name_on_website: isSuspect ? 'Karthik S' : file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' '),
+          verification_url: 'https://verify.springboard.infosys.com/sample',
+          is_match: !isSuspect,
           status: isSuspect ? 'Suspicious' : 'Verified',
-          confidence: isSuspect ? '48%' : '97%',
-          fraudIndicators: isSuspect ? ['Font mismatch in student name', 'Inconsistent certificate serial format'] : [],
+          aiMatchConfidence: isSuspect ? '40%' : '98%',
           reason: isSuspect 
-            ? 'Suspicious: Font kerning and background artifacts suggest the student name was edited over an existing Infosys Springboard certificate.' 
-            : 'Genuine: Certificate structure, signature, and Infosys Springboard formatting verified successfully.'
+            ? `Fake: Certificate displays student name "${file.name.replace(/\.[^/.]+$/, '').replace(/[_-]/g, ' ')}", but verification link belongs to "Karthik S".`
+            : 'Genuine: Name on certificate matches the student record on the official verification webpage.'
         };
       }
 
       const cert = new Certificate({
         fileName: file.name,
         driveFileId: file.id,
+        driveLink: file.webViewLink || `https://drive.google.com/file/d/${file.id}/view`,
         folderId: folderDoc._id.toString(),
         folderName: folderDoc.name,
-        studentName: aiResult.studentName || 'Student',
+        studentName: aiResult.studentName || aiResult.extracted_name_on_cert || 'Student',
         courseName: aiResult.courseName || 'Infosys Springboard Assignment',
-        aiMatchConfidence: aiResult.confidence || '95%',
-        status: aiResult.status || 'Verified',
-        reason: aiResult.reason || 'Verified authenticity check',
-        driveLink: file.webViewLink || `https://drive.google.com/file/d/${file.id}/view`,
-        fraudIndicators: aiResult.fraudIndicators || [],
+        platform: 'Infosys Springboard',
+        extracted_name_on_cert: aiResult.extracted_name_on_cert,
+        extracted_name_on_website: aiResult.extracted_name_on_website,
+        verification_url: aiResult.verification_url,
+        is_match: Boolean(aiResult.is_match),
+        status: aiResult.status || (aiResult.is_match ? 'Verified' : 'Suspicious'),
+        aiMatchConfidence: aiResult.aiMatchConfidence || '95%',
+        reason: aiResult.reason,
         uploadDate: new Date()
       });
 

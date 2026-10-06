@@ -12,13 +12,16 @@ const certificateSchema = new mongoose.Schema({
   studentName: { type: String, required: true },
   courseName: { type: String, required: true },
   platform: { type: String, default: 'Infosys Springboard' },
-  certificateId: { type: String },
+
+  // Core Verification Result (QR / Webpage Name Matching)
+  extracted_name_on_cert: { type: String },
+  extracted_name_on_website: { type: String },
+  verification_url: { type: String },
+  is_match: { type: Boolean, default: false },
   
-  // AI Verification & Fraud Detection
   status: { type: String, enum: ['Verified', 'Suspicious', 'Pending'], default: 'Verified' },
   aiMatchConfidence: { type: String, default: '95%' },
-  reason: { type: String, default: 'Genuine: Standard Infosys Springboard certificate format matches official layout.' },
-  fraudIndicators: [{ type: String }],
+  reason: { type: String },
   
   uploadDate: { type: Date, default: Date.now }
 });
