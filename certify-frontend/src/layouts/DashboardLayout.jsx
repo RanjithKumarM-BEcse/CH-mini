@@ -27,8 +27,8 @@ export default function DashboardLayout({ children }) {
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 font-sans flex flex-col">
       {/* Clean Top Navigation Bar */}
-      <header className="bg-white border-b border-slate-200 px-6 py-3.5 sticky top-0 z-30 shadow-xs">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+      <header className="bg-white border-b border-slate-200 px-6 sm:px-8 py-3.5 sticky top-0 z-30 shadow-xs">
+        <div className="max-w-[1550px] mx-auto flex items-center justify-between">
           <Link to="/dashboard" className="flex items-center gap-2.5 text-brand-600 font-bold text-xl tracking-tight">
             <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center text-brand-600">
               <FileCheck className="w-5 h-5" />
@@ -66,7 +66,7 @@ export default function DashboardLayout({ children }) {
       </header>
 
       {/* Main Container */}
-      <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6 md:p-8">
+      <main className="flex-1 max-w-[1550px] w-full mx-auto p-4 sm:p-6 md:p-8">
         {children}
       </main>
     </div>

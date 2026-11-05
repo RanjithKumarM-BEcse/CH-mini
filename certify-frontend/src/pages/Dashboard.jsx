@@ -405,7 +405,7 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-5xl mx-auto space-y-6">
+      <div className="w-full space-y-6">
 
         {/* ERROR / NOTICE BANNER */}
         {errorMessage && (
@@ -420,7 +420,7 @@ export default function Dashboard() {
 
         {/* LOADING STATE */}
         {loading && (
-          <div className="bg-white border border-brand-200 rounded-2xl p-8 text-center shadow-sm space-y-4 animate-pulse">
+          <div className="bg-white border border-brand-200 rounded-2xl p-8 text-center shadow-sm space-y-4 animate-pulse max-w-2xl mx-auto">
             <RefreshCw className="w-8 h-8 text-brand-600 animate-spin mx-auto" />
             <h3 className="text-lg font-bold text-slate-800">
               Scanning Certificates in Progress...
@@ -433,7 +433,7 @@ export default function Dashboard() {
 
         {/* STEP 1: IMPORT FROM DRIVE OR FILE */}
         {!loading && (showImportView || certificates.length === 0) && (
-          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8 space-y-6 max-w-4xl mx-auto">
             <div className="text-center max-w-xl mx-auto">
               <h2 className="text-2xl font-extrabold text-slate-900 tracking-tight">
                 Import Student Certificates
@@ -616,15 +616,15 @@ export default function Dashboard() {
             {/* Simple Result Table */}
             <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm whitespace-nowrap">
+                <table className="w-full text-left text-sm table-auto">
                   <thead className="bg-slate-50 text-slate-500 font-bold text-xs uppercase tracking-wider border-b border-slate-200">
                     <tr>
-                      <th className="px-5 py-3.5">Student Name (on Certificate)</th>
-                      <th className="px-5 py-3.5">Name on Official Website</th>
-                      <th className="px-5 py-3.5">Status</th>
-                      <th className="px-5 py-3.5">Verification Link / Proof</th>
-                      <th className="px-5 py-3.5">Reason</th>
-                      <th className="px-5 py-3.5 text-right">Action</th>
+                      <th className="px-5 py-3.5 whitespace-nowrap w-[20%]">Student Name (on Certificate)</th>
+                      <th className="px-5 py-3.5 whitespace-nowrap w-[18%]">Name on Official Website</th>
+                      <th className="px-5 py-3.5 whitespace-nowrap w-[15%]">Status</th>
+                      <th className="px-5 py-3.5 whitespace-nowrap w-[17%]">Verification Link / Proof</th>
+                      <th className="px-5 py-3.5 min-w-[280px]">Reason</th>
+                      <th className="px-5 py-3.5 text-right whitespace-nowrap w-[5%]">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -636,17 +636,17 @@ export default function Dashboard() {
                       return (
                         <tr key={cert._id} className="hover:bg-slate-50/70 transition-colors">
                           {/* Student Name on Cert */}
-                          <td className="px-5 py-3.5 font-bold text-slate-900">
+                          <td className="px-5 py-3.5 font-bold text-slate-900 whitespace-nowrap">
                             {nameOnCert}
-                            <span className="block text-[11px] font-normal text-slate-400">
+                            <span className="block text-[11px] font-normal text-slate-400 max-w-[220px] truncate" title={cert.fileName}>
                               {cert.fileName}
                             </span>
                           </td>
 
                           {/* Name on Official Website */}
-                          <td className="px-5 py-3.5">
+                          <td className="px-5 py-3.5 whitespace-nowrap">
                             <span className={cn(
-                              "text-xs font-bold px-2 py-1 rounded-lg",
+                              "text-xs font-bold px-2 py-1 rounded-lg inline-block",
                               isGenuine ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-800"
                             )}>
                               {nameOnWeb}
@@ -654,7 +654,7 @@ export default function Dashboard() {
                           </td>
 
                           {/* Status */}
-                          <td className="px-5 py-3.5">
+                          <td className="px-5 py-3.5 whitespace-nowrap">
                             <span className={cn(
                               "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border",
                               isGenuine 
@@ -676,13 +676,13 @@ export default function Dashboard() {
                           </td>
 
                           {/* Link */}
-                          <td className="px-5 py-3.5">
+                          <td className="px-5 py-3.5 whitespace-nowrap">
                             {cert.verification_url ? (
                               <a 
                                 href={cert.verification_url} 
                                 target="_blank" 
                                 rel="noreferrer"
-                                className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-mono hover:underline truncate max-w-[180px]"
+                                className="inline-flex items-center gap-1 text-xs text-brand-600 hover:text-brand-800 font-mono hover:underline truncate max-w-[170px]"
                                 title={cert.verification_url}
                               >
                                 <ExternalLink className="w-3 h-3 shrink-0" />
@@ -694,12 +694,12 @@ export default function Dashboard() {
                           </td>
 
                           {/* Reason */}
-                          <td className="px-5 py-3.5 text-xs text-slate-600 max-w-xs truncate" title={cert.reason}>
+                          <td className="px-5 py-3.5 text-xs text-slate-600 leading-relaxed whitespace-normal break-words">
                             {cert.reason}
                           </td>
 
                           {/* Delete */}
-                          <td className="px-5 py-3.5 text-right">
+                          <td className="px-5 py-3.5 text-right whitespace-nowrap">
                             <button
                               onClick={() => handleDelete(cert._id)}
                               className="text-slate-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
