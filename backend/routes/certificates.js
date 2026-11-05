@@ -55,37 +55,37 @@ router.post('/demo', async (req, res) => {
   try {
     const demoItems = [
       {
-        studentName: 'Ranjith Kumar M',
-        courseName: 'Infosys Springboard - Python Foundation',
-        fileName: 'Ranjith_Kumar_Infosys_Cert.pdf',
-        extracted_name_on_cert: 'Ranjith Kumar M',
-        extracted_name_on_website: 'Ranjith Kumar M',
-        verification_url: 'https://verify.springboard.infosys.com/cert/SPB-849201',
+        studentName: 'Dhanush B',
+        courseName: 'Infosys Springboard - Programming Fundamentals using Python',
+        fileName: 'Dhanush_B_Python_Certificate.pdf',
+        extracted_name_on_cert: 'Dhanush B',
+        extracted_name_on_website: 'Dhanush B',
+        verification_url: 'https://verify.onwingspan.com',
         is_match: true,
         status: 'Verified',
         reason: 'Genuine: Name on certificate matches the student name on the official Infosys Springboard verification registry.'
       },
       {
-        studentName: 'Praveen S',
-        courseName: 'Infosys Springboard - Cloud & DevOps',
-        fileName: 'Praveen_Cloud_Assignment.jpg',
-        extracted_name_on_cert: 'Praveen S',
-        extracted_name_on_website: 'Karthik S',
-        verification_url: 'https://verify.springboard.infosys.com/cert/SPB-310948',
-        is_match: false,
-        status: 'Suspicious',
-        reason: 'Fake / Mismatch: Certificate displays student name "Praveen S", but the official verification link belongs to "Karthik S". Name was edited.'
-      },
-      {
-        studentName: 'Ananya Sharma',
-        courseName: 'Infosys Springboard - Artificial Intelligence Primer',
-        fileName: 'Ananya_AI_Certificate.png',
-        extracted_name_on_cert: 'Ananya Sharma',
-        extracted_name_on_website: 'Ananya Sharma',
-        verification_url: 'https://verify.springboard.infosys.com/cert/SPB-592014',
+        studentName: 'Dharun S',
+        courseName: 'Infosys Springboard - Cloud & Web Technologies',
+        fileName: 'Dharun_S_Web_Certificate.pdf',
+        extracted_name_on_cert: 'Dharun S',
+        extracted_name_on_website: 'Dharun S',
+        verification_url: 'https://verify.onwingspan.com',
         is_match: true,
         status: 'Verified',
-        reason: 'Genuine: Student name matches the official verification registry.'
+        reason: 'Genuine: Name on certificate matches the student name on the official Infosys Springboard verification registry.'
+      },
+      {
+        studentName: 'RanjithKumar M',
+        courseName: 'Infosys Springboard - Python Foundation',
+        fileName: 'RanjithKumar_M_Certificate.pdf',
+        extracted_name_on_cert: 'RanjithKumar M',
+        extracted_name_on_website: 'Suresh Kumar K',
+        verification_url: 'https://verify.onwingspan.com',
+        is_match: false,
+        status: 'Suspicious',
+        reason: 'Fake / Mismatch: Certificate displays student name "RanjithKumar M", but the official verification record belongs to "Suresh Kumar K". Name was edited.'
       }
     ];
 
